@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+#
+# rename_nef.sh — rename Nikon NEF files to YYYYMMDDHHMMSS<subseconds>.NEF
+#                 using the capture time stored in EXIF.
+#
+#   20261017201845.NEF   <- 2026-10-17 20:18:45 (no subseconds available)
+#   2026101720184537.NEF <- 2026-10-17 20:18:45.37
+#
+# Uses DateTimeOriginal + SubSecTimeOriginal. If two shots land on the exact
+# same subsecond (rare, but possible in fast bursts), a suffix _1, _2, ... is
+# added. Matching Lightroom/Photoshop .xmp sidecars are renamed alongside.
+#
+# Usage:
+#   ./rename_nef.sh [-n] [-r] DIRECTORY
+#     -n   dry run: show what would be renamed, change nothing
+#     -r   recurse into subdirectories
+#
+# Requires exiftool:  brew install exiftool   (macOS)
+#                     sudo apt install libimage-exiftool-perl   (Debian/Ubuntu)
+#
+# Works with the stock macOS bash 3.2.
+
+set -u
+
+DRY_RUN=0
+RECURSE=""
+
+usage() {
+    echo "Usage: $(basename "$0") [-n] [-r] DIRECTORY" >&2
+    echo "  -n  dry run (show changes only)" >&2
+    echo "  -r  recurse into subdirectories" >&2
+    exit 1
+}
+
+while getopts ":nrh" opt; do
+    case "$opt" in
+        n) DRY_RUN=1 ;;
+        r) RECURSE="-r" ;;
+        *) usage ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+[ $# -eq 1 ] || usage
+DIR="$1"
+[ -d "$DIR" ] || { echo "Error: '$DIR' is not a directory" >&2; exit 1; }
+
+command -v exiftool >/dev/null 2>&1 || {
+    echo "Error: exiftool not found. Install it (e.g. 'brew install exiftool')." >&2
+    exit 1
+}
+
+renamed=0; skipped=0; failed=0
+planned="|"   # names already claimed in this run (catches collisions during dry runs)
+
+# One exiftool call for the whole directory: path <TAB> datetime <TAB> subsec
+# -f prints "-" for missing tags; -ext nef matches .nef and .NEF.
+while IFS=$'\t' read -r src dto subsec; do
+    [ -n "$src" ] || continue
+    dir=$(dirname "$src")
+    file=$(basename "$src")
+    ext="${file##*.}"
+    stem="${file%.*}"
+
+    if [ "$dto" = "-" ] || [ -z "$dto" ]; then
+        echo "SKIP  $src (no DateTimeOriginal in EXIF)" >&2
+        skipped=$((skipped + 1))
+        continue
+    fi
+
+    subsec=$(printf '%s' "$subsec" | tr -cd '0-9')   # strip spaces / "-" placeholder
+    base="${dto}${subsec}"
+
+    # Pick a free target name
+    new="$base"
+    n=0
+    while :; do
+        target="$dir/$new.$ext"
+        if [ "$target" = "$src" ]; then
+            break                                   # already correctly named
+        fi
+        case "$planned" in *"|$target|"*) ;; *)
+            [ -e "$target" ] || break ;;
+        esac
+        n=$((n + 1))
+        new="${base}_$n"
+    done
+
+    if [ "$target" = "$src" ]; then
+        skipped=$((skipped + 1))
+        continue
+    fi
+    planned="${planned}${target}|"
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        echo "WOULD $src -> $new.$ext"
+    else
+        if mv -n "$src" "$target" && [ ! -e "$src" ]; then
+            echo "OK    $src -> $new.$ext"
+            renamed=$((renamed + 1))
+        else
+            echo "FAIL  $src" >&2
+            failed=$((failed + 1))
+            continue
+        fi
+    fi
+
+    # Carry along sidecars: IMG.xmp / IMG.XMP and IMG.NEF.xmp styles
+    for side in "$dir/$stem.xmp" "$dir/$stem.XMP" "$src.xmp" "$src.XMP"; do
+        [ -e "$side" ] || continue
+        side_ext="${side##*.}"
+        case "$side" in
+            "$src".*) side_target="$target.$side_ext" ;;
+            *)        side_target="$dir/$new.$side_ext" ;;
+        esac
+        if [ "$DRY_RUN" -eq 1 ]; then
+            echo "      + $(basename "$side") -> $(basename "$side_target")"
+        else
+            mv -n "$side" "$side_target" && echo "      + $(basename "$side") -> $(basename "$side_target")"
+        fi
+    done
+done < <(exiftool -q -q -m -f $RECURSE -ext nef \
+            -d '%Y%m%d%H%M%S' \
+            -p '$Directory/$FileName	$DateTimeOriginal	$SubSecTimeOriginal' \
+            "$DIR" 2>/dev/null | sort)
+
+echo
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo "Dry run complete — nothing was changed."
+else
+    echo "Renamed: $renamed   Skipped: $skipped   Failed: $failed"
+fi
