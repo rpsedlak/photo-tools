@@ -128,6 +128,32 @@ is_ymd()    { case "$1" in [12][0-9][0-9][0-9][01][0-9][0-3][0-9]) return 0 ;; e
 ext_of()    { local n; n=$(basename "$1"); if [ "$n" = "${n##*.}" ]; then echo OTHER; else upper "${n##*.}"; fi; }
 add_date()  { case "$dates_seen" in *"|$1|"*) ;; *) dates_seen="$dates_seen$1|" ;; esac; }
 
+# ---------- progress display --------------------------------------------------
+# On a terminal one status line is rewritten in place; when the output goes to
+# a file or pipe, a line is printed at every 10% instead.
+PROG_TTY=0; [ -t 1 ] && PROG_TTY=1
+PROG_STEP=-1
+progress() {      # $1 = percent done, $2 = status text
+    if [ "$PROG_TTY" -eq 1 ]; then
+        printf '\r\033[K%s' "$2"
+    elif [ $(( $1 / 10 )) -ne "$PROG_STEP" ]; then
+        PROG_STEP=$(( $1 / 10 )); printf '%s\n' "$2"
+    fi
+}
+progress_end() {  # clear the status line before normal output resumes
+    if [ "$PROG_TTY" -eq 1 ]; then printf '\r\033[K'; fi
+    PROG_STEP=-1
+}
+hms()    { if [ "$1" -ge 3600 ]; then printf '%dh%02dm' $(($1 / 3600)) $(($1 % 3600 / 60)); else printf '%dm%02ds' $(($1 / 60)) $(($1 % 60)); fi; }
+size_h() { if [ "$1" -ge 1073741824 ]; then printf '%d.%d GB' $(($1 / 1073741824)) $(($1 % 1073741824 * 10 / 1073741824)); else printf '%d MB' $(($1 / 1048576)); fi; }
+timing() {        # $1 = start ($SECONDS), $2 = amount done, $3 = total -> "1m02s, ~3m10s left"
+    local el=$((SECONDS - $1))
+    printf '%s' "$(hms "$el")"
+    if [ "$2" -gt 0 ] && [ "$2" -lt "$3" ] && [ "$el" -ge 2 ]; then
+        printf ', ~%s left' "$(hms $(( el * ($3 - $2) / $2 )))"
+    fi
+}
+
 # ---------- validate ----------------------------------------------------------
 [ -n "$EVENT_RAW" ] || { echo "Error: an event name is required (-e)." >&2; usage; }
 EVENT=$(printf '%s' "$EVENT_RAW" | tr '[:upper:]' '[:lower:]' \
@@ -165,7 +191,9 @@ MANIFEST="$DEST_ROOT/.photo-import-manifest.tsv"
 [ -e "$MANIFEST" ] || [ "$DRY_RUN" -eq 1 ] || : > "$MANIFEST"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/photo-import.XXXXXX") || die "cannot create a temp folder"
 trap 'rm -rf "$WORK"' EXIT
-trap 'echo ""; echo "Interrupted — re-run the same command to finish." >&2; exit 130' INT TERM
+CONV_PID=""       # DNG converter running in the background (it ignores Ctrl-C itself)
+trap 'echo ""; [ -n "$CONV_PID" ] && kill "$CONV_PID" 2>/dev/null
+      echo "Interrupted — re-run the same command to finish." >&2; exit 130' INT TERM
 
 log "Event:   $EVENT"
 log "Card:    $SOURCE"
@@ -184,23 +212,35 @@ scan="$SOURCE"; [ -d "$SOURCE/DCIM" ] && scan="$SOURCE/DCIM"
 find "$scan" -type f ! -name '.*' ! -path '*/.*' > "$WORK/files"
 
 # Capture time for every file in one exiftool pass: path, YYYYMMDDHHMMSS, subsec.
+# -progress reports "[n/total]" on stderr, which drives the status line.
 : > "$WORK/exif"
 if [ -s "$WORK/files" ]; then
-    log "Reading capture dates..."
-    exiftool -q -q -m -f -fast2 -d '%Y%m%d%H%M%S' \
+    log "Reading capture dates from $(wc -l < "$WORK/files" | tr -d ' ') file(s)..."
+    exiftool -q -q -m -f -fast2 -progress -d '%Y%m%d%H%M%S' \
              -p '$Directory/$FileName	$DateTimeOriginal	$SubSecTimeOriginal' \
-             -@ "$WORK/files" > "$WORK/exif" 2>/dev/null
+             -@ "$WORK/files" 2>&1 > "$WORK/exif" |
+    while IFS= read -r line; do
+        case "$line" in
+            "======== "*"/"*"]")
+                c="${line##* \[}"; c="${c%]}"
+                progress $(( ${c%/*} * 100 / ${c#*/} )) "Reading capture dates... $c" ;;
+        esac
+    done
+    progress_end
 fi
 awk -F'\t' 'NR == FNR { t[$1] = $2 "\t" $3; next }
             { print $0 "\t" (($0 in t) ? t[$0] : "-\t-") }' \
     "$WORK/exif" "$WORK/files" > "$WORK/plan"
 
-TODO=(); TODO_KEY=(); TODO_DATE=()
+TODO=(); TODO_KEY=(); TODO_DATE=(); TODO_SIZE=()
 total_bytes=0; nef_bytes=0; already=0
 dates_seen="|"
+plan_n=$(wc -l < "$WORK/plan" | tr -d ' '); k=0
 
 while IFS=$'\t' read -r f dto sub; do
     [ -n "$f" ] || continue
+    k=$((k + 1))
+    progress $(( k * 100 / plan_n )) "Checking against the manifest... $k/$plan_n"
     name=$(basename "$f")
     size=$(file_size "$f"); mtime=$(file_epoch "$f")
     sub=$(printf '%s' "$sub" | tr -cd '0-9')
@@ -218,10 +258,11 @@ while IFS=$'\t' read -r f dto sub; do
     if [ -n "$FORCE_DATE" ]; then d="$FORCE_DATE"
     else d="${dto:0:8}"; is_ymd "$d" || d=$(epoch_ymd "$mtime")
     fi
-    TODO+=("$f"); TODO_KEY+=("$key"); TODO_DATE+=("$d")
+    TODO+=("$f"); TODO_KEY+=("$key"); TODO_DATE+=("$d"); TODO_SIZE+=("$size")
     total_bytes=$((total_bytes + size))
     case "$name" in *.[Nn][Ee][Ff]) nef_bytes=$((nef_bytes + size)) ;; esac
 done < "$WORK/plan"
+progress_end
 
 # NEFs and JPGs left in .incoming by an interrupted run are finished too.
 leftover=0
@@ -273,10 +314,14 @@ fi
 
 # ---------- 2. copy + verify --------------------------------------------------
 copied=0; failed=0; nef_new=0
+done_bytes=0; t0=$SECONDS
 i=0
 while [ $i -lt ${#TODO[@]} ]; do
     f="${TODO[$i]}"; key="${TODO_KEY[$i]}"; d="${TODO_DATE[$i]}"; i=$((i + 1))
     name=$(basename "$f"); ext=$(ext_of "$f")
+    p=100; [ "$total_bytes" -gt 0 ] && p=$(( done_bytes * 100 / total_bytes ))
+    progress "$p" "Copying $i/${#TODO[@]} ($p%)  $(size_h $done_bytes) of $(size_h $total_bytes)  $(timing $t0 $done_bytes $total_bytes)  $name"
+    done_bytes=$((done_bytes + ${TODO_SIZE[$((i - 1))]}))
     case "$ext" in
         NEF|JPG) dir="$DEST_ROOT/$d/$ext/.incoming" ;;  # new NEFs/JPGs wait here until renamed (+ converted)
         *)       dir="$DEST_ROOT/$d/$ext" ;;
@@ -308,15 +353,14 @@ while [ $i -lt ${#TODO[@]} ]; do
         printf '%s\n' "$key" >> "$MANIFEST"
         copied=$((copied + 1))
         [ "$ext" = "NEF" ] && nef_new=$((nef_new + 1))
-        printf '\rCopying... %d/%d' "$i" "${#TODO[@]}"
     else
         rm -f "$target"
-        echo "" >&2; echo "FAIL  copy $f" >&2
+        progress_end; echo "FAIL  copy $f" >&2
         failed=$((failed + 1))
     fi
 done
-[ ${#TODO[@]} -gt 0 ] && echo ""
-log "Copied $copied file(s) ($nef_new NEF), $failed failed."
+progress_end
+log "Copied $copied file(s) ($nef_new NEF) in $(hms $((SECONDS - t0))), $failed failed."
 
 # Every date folder gets an empty prod/ next to NEF/ and DNG/; an existing one is left alone.
 for day in $DATES; do
@@ -364,6 +408,18 @@ is_duplicate() {  # $1 = renamed NEF/JPG in .incoming, $2 = its final dir
     return 1
 }
 
+run_rename() {    # $1 = .incoming dir, $2 = file count, then any rename_nef.sh options
+    local inc="$1" total="$2" n=0 line
+    shift 2
+    bash "$RENAME_NEF" "$@" "$inc" 2>&1 | while IFS= read -r line; do
+        case "$line" in
+            "OK "*)       n=$((n + 1)); progress $(( n * 100 / total )) "          renaming... $n/$total" ;;
+            FAIL*|SKIP*)  progress_end; echo "          $line" >&2 ;;
+            Renamed:*)    progress_end; echo "          $line" ;;
+        esac
+    done
+}
+
 process_jpgs() {  # $1 = YYYYMMDD; rename new JPGs to capture time and file them in JPG/
     local day="$1" jd inc jpgs f
     jd="$DEST_ROOT/$day/JPG"; inc="$jd/.incoming"
@@ -372,7 +428,7 @@ process_jpgs() {  # $1 = YYYYMMDD; rename new JPGs to capture time and file them
 
     log ""
     log "$day: renaming ${#jpgs[@]} JPG(s) to capture time..."
-    bash "$RENAME_NEF" -e jpg "$inc" | grep -E '^(Renamed|FAIL)' | sed 's/^/          /'
+    run_rename "$inc" "${#jpgs[@]}" -e jpg
 
     jpgs=( "$inc"/*.[Jj][Pp][Gg] )
     for f in "${jpgs[@]}"; do
@@ -388,7 +444,7 @@ process_jpgs() {  # $1 = YYYYMMDD; rename new JPGs to capture time and file them
 }
 
 process_date() {  # $1 = YYYYMMDD
-    local day="$1" nd dd inc din ev nefs f j base stem dng c dt prefix cur_prefix serial out rights_ok
+    local day="$1" nd dd inc din ev nefs f j base stem dng c dt prefix cur_prefix serial out rights_ok t0 made total
     nd="$DEST_ROOT/$day/NEF"; inc="$nd/.incoming"
     dd="$DEST_ROOT/$day/DNG"; din="$dd/.incoming"
     nefs=( "$inc"/*.[Nn][Ee][Ff] )
@@ -399,7 +455,7 @@ process_date() {  # $1 = YYYYMMDD
 
     log ""
     log "$day: renaming ${#nefs[@]} NEF(s) to capture time..."
-    bash "$RENAME_NEF" "$inc" | grep -E '^(Renamed|FAIL)' | sed 's/^/          /'
+    run_rename "$inc" "${#nefs[@]}"
 
     # Drop any NEF that is byte-identical to one already imported.
     nefs=( "$inc"/*.[Nn][Ee][Ff] )
@@ -417,12 +473,23 @@ process_date() {  # $1 = YYYYMMDD
     else
         log "$day: converting ${#nefs[@]} NEF(s) to DNG ($ev)..."
         rm -rf "$din"; mkdir -p "$din" || die "cannot create $din"
-        j=0
+        t0=$SECONDS; j=0
         while [ $j -lt ${#nefs[@]} ]; do         # one converter launch per batch
+            # Run in the background and count the DNGs as they appear.
             # shellcheck disable=SC2086
-            "$DNG_CONVERTER" $DNG_OPTS -d "$din" "${nefs[@]:$j:$DNG_BATCH}" >/dev/null 2>&1
+            "$DNG_CONVERTER" $DNG_OPTS -d "$din" "${nefs[@]:$j:$DNG_BATCH}" >/dev/null 2>&1 &
+            CONV_PID=$!
+            while kill -0 "$CONV_PID" 2>/dev/null; do
+                made=( "$din"/*.[Dd][Nn][Gg] )
+                progress $(( ${#made[@]} * 100 / ${#nefs[@]} )) \
+                    "          converting... ${#made[@]}/${#nefs[@]}  $(timing $t0 ${#made[@]} ${#nefs[@]})"
+                sleep 1
+            done
+            wait "$CONV_PID"; CONV_PID=""
             j=$((j + DNG_BATCH))
         done
+        progress_end
+        log "          converted in $(hms $((SECONDS - t0)))"
 
         exiftool -q -q -m -f -ext nef -d '%Y%m%d' -p '$FileName	$DateTimeOriginal' "$inc" \
             > "$WORK/dates" 2>/dev/null
@@ -440,13 +507,23 @@ process_date() {  # $1 = YYYYMMDD
                     [ -s "$WORK/rights.args" ] && echo "-execute" >> "$WORK/rights.args"
                     printf '%s\n' "-MWG:Copyright=© ${dt:0:4} $COPYRIGHT_OWNER" "$c" \
                         >> "$WORK/rights.args"
+                    break   # on a case-insensitive disk .dng and .DNG are the same file
                 done
             done
             if [ -s "$WORK/rights.args" ]; then
                 log "$day: writing copyright ($COPYRIGHT_OWNER)..."
+                # -echo3 prints one line as each file is finished, for the status line.
+                total=$(grep -c '^-MWG:Copyright=' "$WORK/rights.args")
                 exiftool -@ "$WORK/rights.args" -common_args -q -q -m -overwrite_original \
-                         -MWG:Creator="$COPYRIGHT_OWNER" -XMP-xmpRights:Marked=True \
-                         >/dev/null 2>&1 || rights_ok=0
+                         -MWG:Creator="$COPYRIGHT_OWNER" -XMP-xmpRights:Marked=True -echo3 . \
+                         2>/dev/null | {
+                    n=0
+                    while IFS= read -r _; do
+                        n=$((n + 1)); progress $(( n * 100 / total )) "          writing copyright... $n/$total"
+                    done
+                }
+                [ "${PIPESTATUS[0]}" -eq 0 ] || rights_ok=0
+                progress_end
             fi
             [ "$rights_ok" -eq 1 ] || echo "FAIL  could not write copyright to $day's DNGs (re-run to retry)" >&2
         fi
@@ -490,7 +567,7 @@ log ""
 
 # ---------- 5. wrap up --------------------------------------------------------
 log ""
-log "Done."
+log "Done in $(hms $SECONDS)."
 for day in $DATES; do
     [ -d "$DEST_ROOT/$day" ] || continue
     line=""

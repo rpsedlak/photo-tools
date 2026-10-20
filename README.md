@@ -130,6 +130,7 @@ These are the fields Lightroom shows as Copyright, Creator and Copyright Status.
 
 **Tips:**
 - Run with `-n` first to preview.
+- Long steps show a live status line: files done out of the total, plus amount copied, elapsed time and estimated time left while copying and converting. When the output is redirected to a log file, a progress line is written every 10% instead.
 - If an import is interrupted, re-run the same command to finish it.
 - Use `-V` for byte-for-byte verification (slower; worthwhile with an unreliable card reader).
 - Two events on the same day each get their own DNG number sequence.
