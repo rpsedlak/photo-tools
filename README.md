@@ -39,7 +39,7 @@ photo-tools/
 ### `workflow/import_photos.sh` — Import and organize photos from an SD card
 
 **Workflow:**
-1. **Copy** — Every file in the card's DCIM folder is copied (never moved; the card is left untouched) into folders by capture date and file type (`20261017/NEF/`, `20261017/JPG/`, …), and each copy is verified.
+1. **Copy** — Every file in the card's DCIM folder is copied (never moved; the card is left untouched) into folders by capture date and file type (`20261017/NEF/`, `20261017/JPG/`, …), and each copy is verified. Each date folder also gets an empty `prod/` folder next to `NEF/` and `DNG/`; if `prod/` already exists it is left exactly as it is.
 2. **Rename** — Newly imported NEFs are renamed to their capture time with `rename_nef.sh`, so they sort chronologically.
 3. **Convert** — NEFs are converted with Adobe DNG Converter into the date folder's `DNG/`, named `<YYYYMMDD>-<event>-<nnnnn>.dng` in capture order.
 4. **Copyright** — If a copyright owner is set (see [Copyright](#copyright)), each new DNG is stamped `© <year> <owner>`, with the year taken from that photo's capture date. NEFs are never modified.
@@ -94,9 +94,10 @@ import_photos.sh -e "Detroit Riverwalk" -s /Volumes/BACKUP -x
 │   │   └── 2026101720184537.NEF
 │   ├── JPG/
 │   ├── MOV/
-│   └── DNG/                       # converted files, numbered per date + event
-│       ├── 20261017-detroit-riverwalk-00001.dng
-│       └── 20261017-detroit-riverwalk-00002.dng
+│   ├── DNG/                       # converted files, numbered per date + event
+│   │   ├── 20261017-detroit-riverwalk-00001.dng
+│   │   └── 20261017-detroit-riverwalk-00002.dng
+│   └── prod/                      # created empty; never written to by the script
 └── 20261018/
     └── ...
 ```

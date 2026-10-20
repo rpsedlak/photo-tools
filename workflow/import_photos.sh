@@ -11,6 +11,8 @@
 #                  /Volumes/photos-01/20261018/NEF/ ...
 #              The date comes from the photo's EXIF capture time
 #              (DateTimeOriginal), or the file's timestamp when there is none.
+#              Each of those date folders also gets an empty prod/ folder
+#              (left as-is if it already exists).
 #   2. RENAME  The newly imported NEFs are renamed to their capture time,
 #              YYYYMMDDHHMMSS<subsec>.NEF, by rename_nef.sh (same folder as
 #              this script), so they sort by time.
@@ -251,6 +253,9 @@ if [ "$DRY_RUN" -eq 1 ]; then
         log "WOULD COPY  ${TODO[$i]} -> ${TODO_DATE[$i]}/$(ext_of "${TODO[$i]}")/"
         i=$((i + 1))
     done
+    for day in $DATES; do
+        [ -d "$DEST_ROOT/$day/prod" ] || log "WOULD CREATE  $day/prod/"
+    done
     log ""
     log "Dry run complete — nothing was changed. NEFs would then be renamed to capture time"
     [ "$SKIP_DNG" -eq 0 ] && log "and converted to <date>/DNG/<YYYYMMDD>-$EVENT-<nnnnn>.dng"
@@ -304,6 +309,18 @@ while [ $i -lt ${#TODO[@]} ]; do
 done
 [ ${#TODO[@]} -gt 0 ] && echo ""
 log "Copied $copied file(s) ($nef_new NEF), $failed failed."
+
+# Every date folder gets an empty prod/ next to NEF/ and DNG/; an existing one is left alone.
+for day in $DATES; do
+    [ -d "$DEST_ROOT/$day" ] || continue
+    [ -d "$DEST_ROOT/$day/prod" ] && continue
+    if mkdir -p "$DEST_ROOT/$day/prod"; then
+        log "Created  $day/prod/"
+    else
+        echo "FAIL  could not create $DEST_ROOT/$day/prod" >&2
+        failed=$((failed + 1))
+    fi
+done
 
 # ---------- 3 + 4. per date folder: rename, drop duplicates, convert, file ---
 shopt -s nullglob
