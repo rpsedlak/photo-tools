@@ -14,7 +14,7 @@ photo-tools/
 │   └── prereqs.sh            # checks for / installs exiftool and Adobe DNG Converter (via Homebrew)
 └── workflow/                 # post-shoot workflow: SD card import and file organization
     ├── import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
-    └── rename_nef.sh         # rename NEFs to capture time (used by import_photos.sh)
+    └── rename_nef.sh         # rename NEFs/JPGs to capture time (used by import_photos.sh)
 ```
 
 | Directory   | Purpose                                                            |
@@ -34,16 +34,18 @@ photo-tools/
 
 ## Tools
 
-> **Primary workflow:** After a photo shoot, use **`workflow/import_photos.sh`** to process the camera's SD card. It copies files off the card, organizes them by date, renames NEFs by capture time, converts them to DNG, and keeps a manifest so nothing is imported twice. `rename_nef.sh` is called automatically by `import_photos.sh` and can also be used on its own.
+> **Primary workflow:** After a photo shoot, use **`workflow/import_photos.sh`** to process the camera's SD card. It copies files off the card, organizes them by date, renames NEFs and JPGs by capture time, converts them to DNG, and keeps a manifest so nothing is imported twice. `rename_nef.sh` is called automatically by `import_photos.sh` and can also be used on its own.
 
 ### `workflow/import_photos.sh` — Import and organize photos from an SD card
 
 **Workflow:**
 1. **Copy** — Every file in the card's DCIM folder is copied (never moved; the card is left untouched) into folders by capture date and file type (`20261017/NEF/`, `20261017/JPG/`, …), and each copy is verified. Each date folder also gets an empty `prod/` folder next to `NEF/` and `DNG/`; if `prod/` already exists it is left exactly as it is.
-2. **Rename** — Newly imported NEFs are renamed to their capture time with `rename_nef.sh`, so they sort chronologically.
+2. **Rename** — Newly imported NEFs and JPGs are renamed to their capture time with `rename_nef.sh`, so they sort chronologically. Other types (MOV, …) keep their camera names.
 3. **Convert** — NEFs are converted with Adobe DNG Converter into the date folder's `DNG/`, named `<YYYYMMDD>-<event>-<nnnnn>.dng` in capture order.
 4. **Copyright** — If a copyright owner is set (see [Copyright](#copyright)), each new DNG is stamped `© <year> <owner>`, with the year taken from that photo's capture date. NEFs are never modified.
-5. **Deduplicate** — A manifest prevents re-importing the same file (e.g. re-inserting a card or importing the camera's backup slot), and byte-identical NEFs are dropped before conversion so a photo never gets two DNGs.
+5. **Deduplicate** — A manifest prevents re-importing the same file (e.g. re-inserting a card or importing the camera's backup slot), and byte-identical NEFs and JPGs are dropped before filing, so a photo is never stored twice or given two DNGs.
+
+**RAW+JPEG shots:** when the camera records both `DSC_0001.NEF` and `DSC_0001.JPG` for the same picture, both are copied, to `NEF/` and `JPG/`, and both are renamed to the same capture time (e.g. `NEF/2026101710000050.NEF` and `JPG/2026101710000050.JPG`), so the pair is easy to match up. Only NEFs are ever converted, so the DNG always comes from the NEF; the JPG is kept as-is, and JPEG-only shots get no DNG.
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
@@ -92,8 +94,9 @@ import_photos.sh -e "Detroit Riverwalk" -s /Volumes/BACKUP -x
 │   ├── NEF/                       # raw files, renamed to capture time
 │   │   ├── 20261017201845.NEF
 │   │   └── 2026101720184537.NEF
-│   ├── JPG/
-│   ├── MOV/
+│   ├── JPG/                       # JPEGs, renamed the same way (a RAW+JPEG pair shares a name)
+│   │   └── 2026101720184537.JPG
+│   ├── MOV/                       # other types keep their camera names
 │   ├── DNG/                       # converted files, numbered per date + event
 │   │   ├── 20261017-detroit-riverwalk-00001.dng
 │   │   └── 20261017-detroit-riverwalk-00002.dng
@@ -133,20 +136,23 @@ These are the fields Lightroom shows as Copyright, Creator and Copyright Status.
 
 ---
 
-### `workflow/rename_nef.sh` — Rename NEF files by capture time
+### `workflow/rename_nef.sh` — Rename NEF (or JPG) files by capture time
 
-Renames Nikon NEF files (and matching `.xmp` sidecars) to `YYYYMMDDHHMMSS[subseconds].NEF` using the EXIF `DateTimeOriginal` and `SubSecTimeOriginal` tags.
+Renames Nikon NEF files (and matching `.xmp` sidecars) to `YYYYMMDDHHMMSS[subseconds].NEF` using the EXIF `DateTimeOriginal` and `SubSecTimeOriginal` tags. With `-e jpg` it renames JPGs the same way. That's how `import_photos.sh` gives both files of a RAW+JPEG shot the same name.
 
 ```
 DSC_0142.NEF -> 20261017201845.NEF      (no subseconds available)
 DSC_0143.NEF -> 2026101720184537.NEF    (2026-10-17 20:18:45.37)
+DSC_0143.JPG -> 2026101720184537.JPG    (with -e jpg)
 ```
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-rename_nef.sh [-n] [-r] DIRECTORY
-  -n   dry run: show what would be renamed, change nothing
-  -r   recurse into subdirectories
+rename_nef.sh [-n] [-r] [-e EXT] DIRECTORY
+  -n       dry run: show what would be renamed, change nothing
+  -r       recurse into subdirectories
+  -e EXT   rename files with this extension instead of NEF, e.g. -e jpg
+           (matches upper and lower case; the extension's case is kept)
 ```
 
 If two shots share the exact same subsecond, a `_1`, `_2`, … suffix is added. Files without a capture time are skipped.

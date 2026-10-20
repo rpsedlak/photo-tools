@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 #
 # rename_nef.sh — rename Nikon NEF files to YYYYMMDDHHMMSS<subseconds>.NEF
-#                 using the capture time stored in EXIF.
+#                 using the capture time stored in EXIF. With -e, other
+#                 types (e.g. the JPG of a RAW+JPEG shot) are renamed the
+#                 same way, so a NEF and its JPG end up with the same name.
 #
 #   20261017201845.NEF   <- 2026-10-17 20:18:45 (no subseconds available)
 #   2026101720184537.NEF <- 2026-10-17 20:18:45.37
@@ -11,9 +13,11 @@
 # added. Matching Lightroom/Photoshop .xmp sidecars are renamed alongside.
 #
 # Usage:
-#   ./rename_nef.sh [-n] [-r] DIRECTORY
-#     -n   dry run: show what would be renamed, change nothing
-#     -r   recurse into subdirectories
+#   ./rename_nef.sh [-n] [-r] [-e EXT] DIRECTORY
+#     -n       dry run: show what would be renamed, change nothing
+#     -r       recurse into subdirectories
+#     -e EXT   rename files with this extension instead of NEF, e.g. -e jpg
+#              (matches upper and lower case; the extension's case is kept)
 #
 # Requires exiftool:  brew install exiftool   (macOS)
 #                     sudo apt install libimage-exiftool-perl   (Debian/Ubuntu)
@@ -24,24 +28,30 @@ set -u
 
 DRY_RUN=0
 RECURSE=""
+EXT="nef"
 
 usage() {
-    echo "Usage: $(basename "$0") [-n] [-r] DIRECTORY" >&2
-    echo "  -n  dry run (show changes only)" >&2
-    echo "  -r  recurse into subdirectories" >&2
+    echo "Usage: $(basename "$0") [-n] [-r] [-e EXT] DIRECTORY" >&2
+    echo "  -n      dry run (show changes only)" >&2
+    echo "  -r      recurse into subdirectories" >&2
+    echo "  -e EXT  rename this file type instead of NEF (e.g. jpg)" >&2
     exit 1
 }
 
-while getopts ":nrh" opt; do
+while getopts ":nre:h" opt; do
     case "$opt" in
         n) DRY_RUN=1 ;;
         r) RECURSE="-r" ;;
+        e) EXT="${OPTARG#.}" ;;
         *) usage ;;
     esac
 done
 shift $((OPTIND - 1))
 
 [ $# -eq 1 ] || usage
+case "$EXT" in
+    ""|*[!A-Za-z0-9]*) echo "Error: -e takes a file extension such as jpg, got '$EXT'" >&2; exit 1 ;;
+esac
 DIR="$1"
 [ -d "$DIR" ] || { echo "Error: '$DIR' is not a directory" >&2; exit 1; }
 
@@ -54,7 +64,7 @@ renamed=0; skipped=0; failed=0
 planned="|"   # names already claimed in this run (catches collisions during dry runs)
 
 # One exiftool call for the whole directory: path <TAB> datetime <TAB> subsec
-# -f prints "-" for missing tags; -ext nef matches .nef and .NEF.
+# -f prints "-" for missing tags; -ext matches upper and lower case (.nef/.NEF).
 while IFS=$'\t' read -r src dto subsec; do
     [ -n "$src" ] || continue
     dir=$(dirname "$src")
@@ -119,7 +129,7 @@ while IFS=$'\t' read -r src dto subsec; do
             mv -n "$side" "$side_target" && echo "      + $(basename "$side") -> $(basename "$side_target")"
         fi
     done
-done < <(exiftool -q -q -m -f $RECURSE -ext nef \
+done < <(exiftool -q -q -m -f $RECURSE -ext "$EXT" \
             -d '%Y%m%d%H%M%S' \
             -p '$Directory/$FileName	$DateTimeOriginal	$SubSecTimeOriginal' \
             "$DIR" 2>/dev/null | sort)

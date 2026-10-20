@@ -13,12 +13,19 @@
 #              (DateTimeOriginal), or the file's timestamp when there is none.
 #              Each of those date folders also gets an empty prod/ folder
 #              (left as-is if it already exists).
-#   2. RENAME  The newly imported NEFs are renamed to their capture time,
-#              YYYYMMDDHHMMSS<subsec>.NEF, by rename_nef.sh (same folder as
-#              this script), so they sort by time.
+#              RAW+JPEG shots (DSC_0001.NEF + DSC_0001.JPG) are both copied,
+#              each to its own extension folder.
+#   2. RENAME  The newly imported NEFs and JPGs are renamed to their capture
+#              time, YYYYMMDDHHMMSS<subsec>.NEF / .JPG, by rename_nef.sh (same
+#              folder as this script), so they sort by time and the two files
+#              of a RAW+JPEG shot share a name:
+#                  20261017/NEF/2026101720184537.NEF
+#                  20261017/JPG/2026101720184537.JPG
+#              Other types (MOV, ...) keep their camera names.
 #   3. DNG     Those NEFs are converted with Adobe DNG Converter into the
 #              date folder's DNG/, named <YYYYMMDD>-<event>-<nnnnn>.dng in
-#              capture order.
+#              capture order. Only NEFs are converted: for a RAW+JPEG shot the
+#              DNG always comes from the NEF, and JPEG-only shots get no DNG.
 #   4. COPYRIGHT
 #              With an owner set (-c, or PHOTO_COPYRIGHT_OWNER), each new DNG
 #              gets "© <year> <owner>" as its copyright and <owner> as its
@@ -37,7 +44,7 @@
 #     importing the backup card from the camera's second slot — copies nothing.
 #   * Before converting, each new NEF is compared byte-for-byte with the NEFs
 #     already in that date folder; an identical photo is dropped, so it can
-#     never get a second DNG.
+#     never get a second DNG. New JPGs are checked the same way.
 #
 # Usage:
 #   ./import_photos.sh -e EVENT [options]
@@ -216,15 +223,17 @@ while IFS=$'\t' read -r f dto sub; do
     case "$name" in *.[Nn][Ee][Ff]) nef_bytes=$((nef_bytes + size)) ;; esac
 done < "$WORK/plan"
 
-# NEFs left in .incoming by an interrupted run are finished too.
+# NEFs and JPGs left in .incoming by an interrupted run are finished too.
 leftover=0
-for inc in "$DEST_ROOT"/[12][0-9][0-9][0-9][01][0-9][0-3][0-9]/NEF/.incoming; do
+for inc in "$DEST_ROOT"/[12][0-9][0-9][0-9][01][0-9][0-3][0-9]/NEF/.incoming \
+           "$DEST_ROOT"/[12][0-9][0-9][0-9][01][0-9][0-3][0-9]/JPG/.incoming; do
     [ -d "$inc" ] || continue
-    n=$(find "$inc" -maxdepth 1 -type f -iname '*.nef' | wc -l | tr -d ' ')
+    t=$(basename "$(dirname "$inc")")
+    n=$(find "$inc" -maxdepth 1 -type f -iname "*.$t" | wc -l | tr -d ' ')
     [ "$n" -gt 0 ] || continue
     d=$(basename "$(dirname "$(dirname "$inc")")")
     leftover=$((leftover + n))
-    log "Resume:  $n NEF(s) in $d/NEF/.incoming from an earlier run"
+    log "Resume:  $n $t(s) in $d/$t/.incoming from an earlier run"
     add_date "$d"
 done
 
@@ -257,8 +266,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
         [ -d "$DEST_ROOT/$day/prod" ] || log "WOULD CREATE  $day/prod/"
     done
     log ""
-    log "Dry run complete — nothing was changed. NEFs would then be renamed to capture time"
-    [ "$SKIP_DNG" -eq 0 ] && log "and converted to <date>/DNG/<YYYYMMDD>-$EVENT-<nnnnn>.dng"
+    log "Dry run complete — nothing was changed. NEFs and JPGs would then be renamed to capture time"
+    [ "$SKIP_DNG" -eq 0 ] && log "and the NEFs converted to <date>/DNG/<YYYYMMDD>-$EVENT-<nnnnn>.dng"
     exit 0
 fi
 
@@ -268,11 +277,10 @@ i=0
 while [ $i -lt ${#TODO[@]} ]; do
     f="${TODO[$i]}"; key="${TODO_KEY[$i]}"; d="${TODO_DATE[$i]}"; i=$((i + 1))
     name=$(basename "$f"); ext=$(ext_of "$f")
-    if [ "$ext" = "NEF" ]; then
-        dir="$DEST_ROOT/$d/NEF/.incoming"     # new NEFs wait here until renamed + converted
-    else
-        dir="$DEST_ROOT/$d/$ext"
-    fi
+    case "$ext" in
+        NEF|JPG) dir="$DEST_ROOT/$d/$ext/.incoming" ;;  # new NEFs/JPGs wait here until renamed (+ converted)
+        *)       dir="$DEST_ROOT/$d/$ext" ;;
+    esac
     mkdir -p "$dir" || die "cannot create $dir"
     # Remember the event for these NEFs, in case the run is interrupted and resumed.
     [ "$ext" = "NEF" ] && [ ! -e "$dir/.event" ] && printf '%s\n' "$EVENT" > "$dir/.event"
@@ -324,7 +332,7 @@ done
 
 # ---------- 3 + 4. per date folder: rename, drop duplicates, convert, file ---
 shopt -s nullglob
-converted=0; conv_failed=0; dupes=0
+converted=0; conv_failed=0; dupes=0; jpg_dupes=0
 
 next_serial() {   # $1 = DNG dir, $2 = prefix; highest existing NNNNN, plus one
     local max=0 f n
@@ -335,7 +343,7 @@ next_serial() {   # $1 = DNG dir, $2 = prefix; highest existing NNNNN, plus one
     echo $((max + 1))
 }
 
-file_nef() {      # $1 = NEF in .incoming, $2 = NEF dir; move it (and any sidecar) out
+file_photo() {    # $1 = NEF/JPG in .incoming, $2 = its final dir; move it (and any sidecar) out
     local src="$1" nd="$2" base t n=0 side
     base=$(basename "$src"); t="$nd/$base"
     while [ -e "$t" ]; do n=$((n + 1)); t="$nd/${base%.*}_$n.${base##*.}"; done
@@ -345,15 +353,38 @@ file_nef() {      # $1 = NEF in .incoming, $2 = NEF dir; move it (and any sideca
     done
 }
 
-is_duplicate() {  # $1 = renamed NEF in .incoming, $2 = NEF dir
+is_duplicate() {  # $1 = renamed NEF/JPG in .incoming, $2 = its final dir
     # Same photo => same capture-time name (rename_nef adds _1, _2 on clashes).
     local f="$1" nd="$2" stem root c
     stem=$(basename "$f"); stem="${stem%.*}"
     root=$(printf '%s' "$stem" | sed 's/_[1-9][0-9]\{0,2\}$//')
-    for c in "$nd/$root".[Nn][Ee][Ff] "$nd/${root}"_[1-9]*.[Nn][Ee][Ff]; do
+    for c in "$nd/$root".* "$nd/${root}"_[1-9]*.*; do
         cmp -s "$f" "$c" && return 0
     done
     return 1
+}
+
+process_jpgs() {  # $1 = YYYYMMDD; rename new JPGs to capture time and file them in JPG/
+    local day="$1" jd inc jpgs f
+    jd="$DEST_ROOT/$day/JPG"; inc="$jd/.incoming"
+    jpgs=( "$inc"/*.[Jj][Pp][Gg] )
+    [ ${#jpgs[@]} -gt 0 ] || { rmdir "$inc" 2>/dev/null; return 0; }
+
+    log ""
+    log "$day: renaming ${#jpgs[@]} JPG(s) to capture time..."
+    bash "$RENAME_NEF" -e jpg "$inc" | grep -E '^(Renamed|FAIL)' | sed 's/^/          /'
+
+    jpgs=( "$inc"/*.[Jj][Pp][Gg] )
+    for f in "${jpgs[@]}"; do
+        if is_duplicate "$f" "$jd"; then
+            log "          duplicate of an existing photo, skipped: $(basename "$f")"
+            rm -f "$f"; jpg_dupes=$((jpg_dupes + 1))
+        else
+            file_photo "$f" "$jd"
+        fi
+    done
+    rmdir "$inc" 2>/dev/null
+    return 0
 }
 
 process_date() {  # $1 = YYYYMMDD
@@ -382,7 +413,7 @@ process_date() {  # $1 = YYYYMMDD
     [ ${#nefs[@]} -gt 0 ] || { rm -f "$inc/.event"; rmdir "$inc" 2>/dev/null; return 0; }
 
     if [ "$SKIP_DNG" -eq 1 ]; then
-        for f in "${nefs[@]}"; do file_nef "$f" "$nd"; done
+        for f in "${nefs[@]}"; do file_photo "$f" "$nd"; done
     else
         log "$day: converting ${#nefs[@]} NEF(s) to DNG ($ev)..."
         rm -rf "$din"; mkdir -p "$din" || die "cannot create $din"
@@ -438,7 +469,7 @@ process_date() {  # $1 = YYYYMMDD
             while [ -e "$out" ]; do serial=$((serial + 1)); out=$(printf '%s/%s-%05d.dng' "$dd" "$prefix" "$serial"); done
             if mv -n "$dng" "$out" && [ -e "$out" ] && [ ! -e "$dng" ]; then
                 serial=$((serial + 1)); converted=$((converted + 1))
-                file_nef "$f" "$nd"
+                file_photo "$f" "$nd"
             else
                 echo "FAIL  could not file $dng" >&2
                 conv_failed=$((conv_failed + 1))
@@ -451,10 +482,11 @@ process_date() {  # $1 = YYYYMMDD
     return 0
 }
 
-for day in $DATES; do process_date "$day"; done
+for day in $DATES; do process_jpgs "$day"; process_date "$day"; done
 log ""
 [ "$SKIP_DNG" -eq 0 ] && log "Converted $converted NEF(s) to DNG, $conv_failed failed."
 [ "$dupes" -gt 0 ] && log "Dropped $dupes duplicate NEF(s)."
+[ "$jpg_dupes" -gt 0 ] && log "Dropped $jpg_dupes duplicate JPG(s)."
 
 # ---------- 5. wrap up --------------------------------------------------------
 log ""
