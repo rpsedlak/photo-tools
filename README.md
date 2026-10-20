@@ -2,6 +2,8 @@
 
 A collection of photo management tools, grouped into directories by purpose.
 
+> **Production location:** In normal use the tools are installed with `install/install.sh` and run from **`/usr/local/bin`**, by name (e.g. `import_photos.sh -e "My Event"`). The exception is when they were installed somewhere else with `install/install.sh -d DIR`; then they run from that folder. This repository is the source; the `workflow/...` paths below show where each script lives in the repo, not where it runs from.
+
 ## Repository layout
 
 ```
@@ -40,9 +42,9 @@ photo-tools/
 3. **Convert** — NEFs are converted with Adobe DNG Converter into the date folder's `DNG/`, named `<YYYYMMDD>-<event>-<nnnnn>.dng` in capture order.
 4. **Deduplicate** — A manifest prevents re-importing the same file (e.g. re-inserting a card or importing the camera's backup slot), and byte-identical NEFs are dropped before conversion so a photo never gets two DNGs.
 
-**Usage:**
+**Usage** (installed in `/usr/local/bin`):
 ```bash
-workflow/import_photos.sh -e EVENT [options]
+import_photos.sh -e EVENT [options]
 
 Required:
   -e EVENT     event name ("Detroit Riverwalk" -> detroit-riverwalk)
@@ -110,9 +112,9 @@ DSC_0142.NEF -> 20261017201845.NEF      (no subseconds available)
 DSC_0143.NEF -> 2026101720184537.NEF    (2026-10-17 20:18:45.37)
 ```
 
-**Usage:**
+**Usage** (installed in `/usr/local/bin`):
 ```bash
-workflow/rename_nef.sh [-n] [-r] DIRECTORY
+rename_nef.sh [-n] [-r] DIRECTORY
   -n   dry run: show what would be renamed, change nothing
   -r   recurse into subdirectories
 ```
@@ -133,7 +135,7 @@ brew install exiftool
 
 ### Install to `/usr/local/bin`
 
-Installing the scripts to `/usr/local/bin` lets you run them by name from any directory. Run the installer from anywhere in the repository:
+`/usr/local/bin` is the standard production location for these tools. It is on the default macOS `PATH`, so installed tools run by name from any directory. Run the installer from the repository:
 
 ```bash
 install/install.sh -n      # preview what will be installed
@@ -145,9 +147,15 @@ The installer:
 - sets each script to mode `755` (`rwxr-xr-x`): every user can run it, only the owner can change it;
 - uses `sudo` only if `/usr/local/bin` isn't writable by you, and asks for your password in that case.
 
-Re-run it after pulling updates; installed copies are replaced. Use `-d DIR` to install somewhere else, e.g. `install/install.sh -d ~/bin`.
+Re-run it after pulling updates; installed copies are replaced. Until you do, `/usr/local/bin` keeps running the older versions.
 
-### Running from the repository instead
+### Installing to another path
+
+Use `-d DIR` to install somewhere other than `/usr/local/bin`, e.g. `install/install.sh -d ~/bin`. The tools then run from that folder instead. Make sure it is on your `PATH`; the installer warns if it isn't. Install all scripts to the same folder, since `import_photos.sh` needs `rename_nef.sh` next to it.
+
+### Running from the repository (development)
+
+For testing changes before installing them, run the scripts directly from the repository:
 
 ```bash
 bash workflow/import_photos.sh -e "My Event"
