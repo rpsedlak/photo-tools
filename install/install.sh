@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 #
-# install.sh — copy the photo-tools scripts into /usr/local/bin.
+# install.sh — install the prerequisites, then copy the photo-tools scripts
+#              into /usr/local/bin.
 #
-# Installs every *.sh in the repository's tool directories (workflow/, ...)
+# First runs install/prereqs.sh, which installs anything missing (exiftool,
+# Adobe DNG Converter) with Homebrew; stops if that fails.
+#
+# Then installs every *.sh in the repository's tool directories (workflow/, ...)
 # with mode 755: everyone can read and run them, only the owner can modify
 # them. sudo is used only when the destination isn't writable by you.
 #
 # Usage:
 #   install/install.sh [-n] [-d DEST]
-#     -n       dry run: show what would be installed, change nothing
+#     -n       dry run: report missing prerequisites and show what would be
+#              installed, change nothing
 #     -d DEST  install somewhere else (default: /usr/local/bin)
 #
 # Re-run after pulling updates; installed copies are replaced.
@@ -48,6 +53,14 @@ done < <(find "$REPO" -mindepth 2 -maxdepth 2 -type f -name '*.sh' \
 dupes=$(for f in "${SCRIPTS[@]}"; do basename "$f"; done | sort | uniq -d)
 [ -z "$dupes" ] || die "these names exist in more than one tool directory and would overwrite each other:
 $dupes"
+
+echo "Checking prerequisites..."
+if [ "$DRY_RUN" -eq 1 ]; then
+    bash "$REPO/install/prereqs.sh" -n
+else
+    bash "$REPO/install/prereqs.sh" || die "prerequisites are not ready (see above). Fix them and re-run."
+fi
+echo ""
 
 # Need sudo if the destination (or, if missing, its nearest existing parent) isn't writable.
 SUDO=""

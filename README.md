@@ -10,7 +10,8 @@ A collection of photo management tools, grouped into directories by purpose.
 photo-tools/
 ├── README.md                 # this file
 ├── install/
-│   └── install.sh            # copies every tool script into /usr/local/bin
+│   ├── install.sh            # installs prerequisites, then copies every tool script into /usr/local/bin
+│   └── prereqs.sh            # checks for / installs exiftool and Adobe DNG Converter (via Homebrew)
 └── workflow/                 # post-shoot workflow: SD card import and file organization
     ├── import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
     └── rename_nef.sh         # rename NEFs to capture time (used by import_photos.sh)
@@ -26,6 +27,7 @@ photo-tools/
 - Put each tool in a top-level directory named for its purpose (e.g. `workflow/`). Create a new directory when a tool doesn't fit an existing one.
 - `install/install.sh` picks up every `*.sh` one level down (`<tool-dir>/<name>.sh`) automatically. Script names must be unique across all tool directories, since they're all installed into one folder.
 - Keep scripts that call each other in the same directory — `import_photos.sh` finds `rename_nef.sh` by looking next to itself.
+- If a new tool needs another program, add a check for it to `install/prereqs.sh`.
 - Add the tool to the tree and table above, and give it a section under [Tools](#tools).
 
 ---
@@ -154,22 +156,35 @@ If two shots share the exact same subsecond, a `_1`, `_2`, … suffix is added. 
 
 ### Prerequisites
 
+| Tool                | Needed by                          | Installed by `prereqs.sh` with           |
+|---------------------|------------------------------------|------------------------------------------|
+| Homebrew            | installing the tools below         | — (install it yourself from https://brew.sh) |
+| exiftool            | `import_photos.sh`, `rename_nef.sh` | `brew install exiftool`                  |
+| Adobe DNG Converter | `import_photos.sh`                 | `brew install --cask adobe-dng-converter` (macOS 14+) |
+
+`install/install.sh` checks these first, so you normally don't need to do anything separately. To check or install them on their own:
+
 ```bash
-brew install exiftool
+install/prereqs.sh -n      # check only: report what's missing
+install/prereqs.sh         # install anything missing
 ```
 
-`import_photos.sh` also needs **Adobe DNG Converter** (a free download from Adobe) installed in `/Applications`, or set `DNG_CONVERTER` to its path. Use `-k` to skip DNG conversion if it isn't installed.
+- Adobe's DNG Converter installer asks for your password.
+- If exiftool is installed but not on your `PATH`, the script says so and shows the line to add to `~/.zprofile`.
+- If DNG Converter lives somewhere other than `/Applications`, set `DNG_CONVERTER` to its path; both `prereqs.sh` and `import_photos.sh` use it.
+- Without DNG Converter, `import_photos.sh -k` still works (it copies and renames but makes no DNGs).
 
 ### Install to `/usr/local/bin`
 
 `/usr/local/bin` is the standard production location for these tools. It is on the default macOS `PATH`, so installed tools run by name from any directory. Run the installer from the repository:
 
 ```bash
-install/install.sh -n      # preview what will be installed
+install/install.sh -n      # preview: report missing prerequisites, show what will be installed
 install/install.sh         # install
 ```
 
 The installer:
+- runs `install/prereqs.sh` to install any missing prerequisites, and stops if one can't be installed;
 - copies every tool script (currently `import_photos.sh` and `rename_nef.sh`) into `/usr/local/bin`, creating it if needed;
 - sets each script to mode `755` (`rwxr-xr-x`): every user can run it, only the owner can change it;
 - uses `sudo` only if `/usr/local/bin` isn't writable by you, and asks for your password in that case.
