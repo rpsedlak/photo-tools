@@ -17,6 +17,11 @@
 #   3. DNG     Those NEFs are converted with Adobe DNG Converter into the
 #              date folder's DNG/, named <YYYYMMDD>-<event>-<nnnnn>.dng in
 #              capture order.
+#   4. COPYRIGHT
+#              With an owner set (-c, or PHOTO_COPYRIGHT_OWNER), each new DNG
+#              gets "© <year> <owner>" as its copyright and <owner> as its
+#              creator (EXIF, XMP, and IPTC if present), with <year> taken
+#              from that photo's capture date. NEFs are never modified.
 #
 # Several cards for the same date and event
 #   Import them one after another. <nnnnn> continues from the highest number
@@ -36,6 +41,8 @@
 #   ./import_photos.sh -e EVENT [options]
 #
 #   -e EVENT     event name (required). "Detroit Riverwalk" -> detroit-riverwalk
+#   -c OWNER     copyright owner written into each new DNG, e.g. "Richard Sedlak"
+#                (default: $PHOTO_COPYRIGHT_OWNER; no copyright if neither is set)
 #   -s SOURCE    card mount point (default: the volume in /Volumes that has a
 #                DCIM folder)
 #   -d DEST      destination root (default: /Volumes/photos-01)
@@ -49,6 +56,8 @@
 #   -n           dry run: show what would happen, change nothing
 #
 # Environment overrides:
+#   PHOTO_COPYRIGHT_OWNER  default for -c; set it once in ~/.zshrc, e.g.
+#                  export PHOTO_COPYRIGHT_OWNER="Richard Sedlak"
 #   DNG_CONVERTER  path to the converter binary
 #                  (default: /Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter)
 #   DNG_OPTS       converter options (default: "-c -p1" = lossless compressed,
@@ -66,6 +75,7 @@ VOLUMES_DIR="${VOLUMES_DIR:-/Volumes}"
 DNG_CONVERTER="${DNG_CONVERTER:-/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter}"
 DNG_OPTS="${DNG_OPTS:--c -p1}"
 DNG_BATCH=100                   # NEFs per converter launch
+COPYRIGHT_OWNER="${PHOTO_COPYRIGHT_OWNER:-}"
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 RENAME_NEF="$SCRIPT_DIR/rename_nef.sh"
@@ -77,9 +87,10 @@ usage() { sed -n '/^# Usage:/,/^# Environment/p' "$0" | sed -e 's/^# \{0,1\}//' 
 die()   { echo "Error: $*" >&2; exit 1; }
 log()   { echo "$*"; }
 
-while getopts ":e:s:d:D:VkFxnh" opt; do
+while getopts ":e:c:s:d:D:VkFxnh" opt; do
     case "$opt" in
         e) EVENT_RAW="$OPTARG" ;;
+        c) COPYRIGHT_OWNER="$OPTARG" ;;
         s) SOURCE="${OPTARG%/}" ;;
         d) DEST_ROOT="${OPTARG%/}" ;;
         D) FORCE_DATE="$OPTARG" ;;
@@ -150,6 +161,13 @@ trap 'echo ""; echo "Interrupted — re-run the same command to finish." >&2; ex
 log "Event:   $EVENT"
 log "Card:    $SOURCE"
 log "Dest:    $DEST_ROOT"
+if [ "$SKIP_DNG" -eq 0 ]; then
+    if [ -n "$COPYRIGHT_OWNER" ]; then
+        log "Rights:  © <capture year> $COPYRIGHT_OWNER"
+    else
+        log "Rights:  none (set -c OWNER or PHOTO_COPYRIGHT_OWNER to add a copyright)"
+    fi
+fi
 log ""
 
 # ---------- 1. plan: what is new on the card, and which date is it? -----------
@@ -322,7 +340,7 @@ is_duplicate() {  # $1 = renamed NEF in .incoming, $2 = NEF dir
 }
 
 process_date() {  # $1 = YYYYMMDD
-    local day="$1" nd dd inc din ev nefs f j base stem dng c dt prefix cur_prefix serial out
+    local day="$1" nd dd inc din ev nefs f j base stem dng c dt prefix cur_prefix serial out rights_ok
     nd="$DEST_ROOT/$day/NEF"; inc="$nd/.incoming"
     dd="$DEST_ROOT/$day/DNG"; din="$dd/.incoming"
     nefs=( "$inc"/*.[Nn][Ee][Ff] )
@@ -361,8 +379,33 @@ process_date() {  # $1 = YYYYMMDD
         exiftool -q -q -m -f -ext nef -d '%Y%m%d' -p '$FileName	$DateTimeOriginal' "$inc" \
             > "$WORK/dates" 2>/dev/null
 
+        # Copyright goes in before filing, so a failure leaves the NEFs to retry.
+        rights_ok=1
+        if [ -n "$COPYRIGHT_OWNER" ]; then
+            : > "$WORK/rights.args"
+            for f in "${nefs[@]}"; do
+                base=$(basename "$f"); stem="${base%.*}"
+                for c in "$din/$stem.dng" "$din/$stem.DNG"; do
+                    [ -e "$c" ] || continue
+                    dt=$(awk -F'\t' -v n="$base" '$1 == n {print $2; exit}' "$WORK/dates")
+                    is_ymd "$dt" || dt="$day"
+                    [ -s "$WORK/rights.args" ] && echo "-execute" >> "$WORK/rights.args"
+                    printf '%s\n' "-MWG:Copyright=© ${dt:0:4} $COPYRIGHT_OWNER" "$c" \
+                        >> "$WORK/rights.args"
+                done
+            done
+            if [ -s "$WORK/rights.args" ]; then
+                log "$day: writing copyright ($COPYRIGHT_OWNER)..."
+                exiftool -@ "$WORK/rights.args" -common_args -q -q -m -overwrite_original \
+                         -MWG:Creator="$COPYRIGHT_OWNER" -XMP-xmpRights:Marked=True \
+                         >/dev/null 2>&1 || rights_ok=0
+            fi
+            [ "$rights_ok" -eq 1 ] || echo "FAIL  could not write copyright to $day's DNGs (re-run to retry)" >&2
+        fi
+
         cur_prefix=""; serial=0
         for f in "${nefs[@]}"; do
+            [ "$rights_ok" -eq 1 ] || { conv_failed=$((conv_failed + 1)); continue; }
             base=$(basename "$f"); stem="${base%.*}"; dng=""
             for c in "$din/$stem.dng" "$din/$stem.DNG"; do [ -e "$c" ] && dng="$c"; done
             if [ -z "$dng" ]; then

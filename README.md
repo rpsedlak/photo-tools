@@ -40,7 +40,8 @@ photo-tools/
 1. **Copy** — Every file in the card's DCIM folder is copied (never moved; the card is left untouched) into folders by capture date and file type (`20261017/NEF/`, `20261017/JPG/`, …), and each copy is verified.
 2. **Rename** — Newly imported NEFs are renamed to their capture time with `rename_nef.sh`, so they sort chronologically.
 3. **Convert** — NEFs are converted with Adobe DNG Converter into the date folder's `DNG/`, named `<YYYYMMDD>-<event>-<nnnnn>.dng` in capture order.
-4. **Deduplicate** — A manifest prevents re-importing the same file (e.g. re-inserting a card or importing the camera's backup slot), and byte-identical NEFs are dropped before conversion so a photo never gets two DNGs.
+4. **Copyright** — If a copyright owner is set (see [Copyright](#copyright)), each new DNG is stamped `© <year> <owner>`, with the year taken from that photo's capture date. NEFs are never modified.
+5. **Deduplicate** — A manifest prevents re-importing the same file (e.g. re-inserting a card or importing the camera's backup slot), and byte-identical NEFs are dropped before conversion so a photo never gets two DNGs.
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
@@ -50,6 +51,8 @@ Required:
   -e EVENT     event name ("Detroit Riverwalk" -> detroit-riverwalk)
 
 Options:
+  -c OWNER     copyright owner written into each new DNG, e.g. "Richard Sedlak"
+               (default: $PHOTO_COPYRIGHT_OWNER; no copyright if neither is set)
   -s SOURCE    card mount point (default: the volume in /Volumes that has a DCIM folder)
   -d DEST      destination root (default: /Volumes/photos-01)
   -D YYYYMMDD  put everything in this one date folder instead of sorting by capture date
@@ -61,6 +64,7 @@ Options:
   -n           dry run: show what would happen, change nothing
 
 Environment overrides:
+  PHOTO_COPYRIGHT_OWNER  default copyright owner (same as -c)
   DNG_CONVERTER  path to the converter binary
                  (default: /Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter)
   DNG_OPTS       converter options (default: "-c -p1" = lossless compressed, medium preview)
@@ -94,6 +98,29 @@ import_photos.sh -e "Detroit Riverwalk" -s /Volumes/BACKUP -x
 └── 20261018/
     └── ...
 ```
+
+#### Copyright
+
+Set your name once in `~/.zshrc` so every import stamps it automatically:
+
+```bash
+export PHOTO_COPYRIGHT_OWNER="Richard Sedlak"
+```
+
+`-c "Name"` overrides it for a single import. For a photo captured 2026-10-17, each new DNG gets:
+
+| Tag                                       | Value                    |
+|-------------------------------------------|--------------------------|
+| EXIF `Copyright`, XMP `dc:rights`         | `© 2026 Richard Sedlak`  |
+| EXIF `Artist`, XMP `dc:creator`           | `Richard Sedlak`         |
+| XMP `xmpRights:Marked`                    | `True` (copyrighted)     |
+
+These are the fields Lightroom shows as Copyright, Creator and Copyright Status. IPTC copyright and by-line are updated as well if the file already has IPTC data. The year comes from each photo's capture date, so a New Year's Eve shoot is split between the two years correctly.
+
+- Only DNGs are stamped. The NEFs stay byte-for-byte as they came off the card, and with `-k` (no DNGs) nothing is stamped.
+- Only DNGs created by this import are stamped. DNGs imported earlier are left as they are.
+- Any copyright the camera wrote (Nikon's *Copyright information* setting) is replaced in the DNG by the `-c` owner.
+- If stamping fails, those NEFs are not filed and a re-run retries them, just like a failed conversion.
 
 **Tips:**
 - Run with `-n` first to preview.
