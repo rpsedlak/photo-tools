@@ -4,6 +4,8 @@ A collection of photo management scripts for photographers using Nikon cameras w
 
 ## Scripts
 
+> **Primary workflow:** After a photo shoot, use **`import_photos.sh`** to handle everything: copy files from your SD card, organize by date, rename NEFs by capture time, convert to DNG, and maintain a deduplication manifest. The `rename_nef.sh` script is called automatically by `import_photos.sh` and can also be used standalone for renaming existing NEF collections.
+
 ### `rename_nef.sh` — Rename NEF files by capture time
 
 Renames Nikon NEF files (and their XMP sidecars) to a sortable timestamp format based on EXIF capture time: `YYYYMMDDHHMMSS[subseconds].NEF`
