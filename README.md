@@ -1,177 +1,150 @@
 # photo-tools
 
-A collection of photo management scripts for photographers using Nikon cameras with SD cards.
+A collection of photo management tools, grouped into directories by purpose.
 
-## Scripts
+## Repository layout
 
-> **Primary workflow:** After a photo shoot, use **`import_photos.sh`** to handle everything: copy files from your SD card, organize by date, rename NEFs by capture time, convert to DNG, and maintain a deduplication manifest. The `rename_nef.sh` script is called automatically by `import_photos.sh` and can also be used standalone for renaming existing NEF collections.
-
-### `rename_nef.sh` — Rename NEF files by capture time
-
-Renames Nikon NEF files (and their XMP sidecars) to a sortable timestamp format based on EXIF capture time: `YYYYMMDDHHMMSS[subseconds].NEF`
-
-**Example:**
 ```
-DSC_0142.NEF → 20261017201845.NEF
-DSC_0143.NEF → 2026101720184537.NEF  (with subseconds)
+photo-tools/
+├── README.md                 # this file
+└── workflow/                 # post-shoot workflow: SD card import and file organization
+    ├── import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
+    └── rename_nef.sh         # rename NEFs to capture time (used by import_photos.sh)
 ```
 
-**Usage:**
-```bash
-./rename_nef.sh [-n] [-r] DIRECTORY
-  -n   dry run (show what would be renamed, don't change anything)
-  -r   recurse into subdirectories
-```
+| Directory   | Purpose                                                            |
+|-------------|--------------------------------------------------------------------|
+| `workflow/` | Getting photos off the camera and into the archive after a shoot.  |
 
-**Requires:**
-- `exiftool` (install via `brew install exiftool` on macOS)
+### Adding new tools
 
-**Features:**
-- Reads capture time from EXIF `DateTimeOriginal` and `SubSecTimeOriginal` tags
-- Adds `_1`, `_2`, etc. suffix if multiple photos share the same timestamp (rare in fast bursts)
-- Renames matching `.xmp` and `.XMP` sidecars alongside NEF files
-- Works with macOS bash 3.2+
+- Put each tool in a top-level directory named for its purpose (e.g. `workflow/`). Create a new directory when a tool doesn't fit an existing one.
+- Keep scripts that call each other in the same directory — `import_photos.sh` finds `rename_nef.sh` by looking next to itself.
+- Add the tool to the tree and table above, and give it a section under [Tools](#tools).
 
 ---
 
-### `import_photos.sh` — Import and organize photos from SD card
+## Tools
 
-A complete photo import workflow: copies files from an SD card to a managed archive, deduplicates, renames NEFs to capture time, converts to Adobe DNG format, and catalogs everything with a manifest.
+> **Primary workflow:** After a photo shoot, use **`workflow/import_photos.sh`** to process the camera's SD card. It copies files off the card, organizes them by date, renames NEFs by capture time, converts them to DNG, and keeps a manifest so nothing is imported twice. `rename_nef.sh` is called automatically by `import_photos.sh` and can also be used on its own.
+
+### `workflow/import_photos.sh` — Import and organize photos from an SD card
 
 **Workflow:**
-1. **Copy** — Every file from the SD card's DCIM folder is copied to an archive organized by capture date and file type (`20261017/NEF/`, `20261017/JPG/`, etc.)
-2. **Rename** — Newly imported NEFs are renamed by capture time using `rename_nef.sh` so they sort chronologically
-3. **Convert** — NEFs are batch-converted to DNG format with the event name in the filename: `20261017-detroit-riverwalk-00001.dng`
-4. **Deduplicate** — A manifest prevents re-importing the same photo (even from different SD cards or backup slots), and byte-identical duplicates are dropped before conversion
+1. **Copy** — Every file in the card's DCIM folder is copied (never moved; the card is left untouched) into folders by capture date and file type (`20261017/NEF/`, `20261017/JPG/`, …), and each copy is verified.
+2. **Rename** — Newly imported NEFs are renamed to their capture time with `rename_nef.sh`, so they sort chronologically.
+3. **Convert** — NEFs are converted with Adobe DNG Converter into the date folder's `DNG/`, named `<YYYYMMDD>-<event>-<nnnnn>.dng` in capture order.
+4. **Deduplicate** — A manifest prevents re-importing the same file (e.g. re-inserting a card or importing the camera's backup slot), and byte-identical NEFs are dropped before conversion so a photo never gets two DNGs.
 
 **Usage:**
 ```bash
-./import_photos.sh -e EVENT [options]
+workflow/import_photos.sh -e EVENT [options]
 
 Required:
-  -e EVENT     event name (e.g., "Detroit Riverwalk" → detroit-riverwalk)
+  -e EVENT     event name ("Detroit Riverwalk" -> detroit-riverwalk)
 
 Options:
-  -s SOURCE    SD card mount point (default: auto-detect /Volumes/*/DCIM)
+  -s SOURCE    card mount point (default: the volume in /Volumes that has a DCIM folder)
   -d DEST      destination root (default: /Volumes/photos-01)
-  -D YYYYMMDD  put everything in one date folder instead of by capture date
-  -V           verify copies byte-for-byte (default: size check only)
+  -D YYYYMMDD  put everything in this one date folder instead of sorting by capture date
+  -V           verify copies byte-for-byte (default: size check)
   -k           copy and rename only; skip DNG conversion
-  -F           force: ignore manifest and copy everything again
+  -F           force: ignore the manifest and copy everything again
+               (identical photos are still never converted twice)
   -x           eject the card when finished
   -n           dry run: show what would happen, change nothing
 
-Environment variables:
-  DNG_CONVERTER  path to Adobe DNG Converter
-                 (default: /Applications/Adobe\ DNG\ Converter.app/Contents/MacOS/Adobe\ DNG\ Converter)
+Environment overrides:
+  DNG_CONVERTER  path to the converter binary
+                 (default: /Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter)
   DNG_OPTS       converter options (default: "-c -p1" = lossless compressed, medium preview)
 ```
 
-**Requires:**
-- `exiftool` (install via `brew install exiftool` on macOS)
-- `rename_nef.sh` in the same directory as `import_photos.sh`
-- Adobe DNG Converter (free, from [Adobe](https://helpx.adobe.com/camera-raw/using/adobe-dng-converter.html))
-
-**Features:**
-- Auto-detects SD card (looks for `/Volumes/*/DCIM`)
-- Imports from multiple cards for the same date/event (DNG numbering continues)
-- Deduplication via manifest and byte-comparison prevents duplicates
-- Resumes interrupted imports
-- Dry-run mode to preview changes
-- Free-space checking before copying
-- Works with macOS bash 3.2+
-
-**Example workflow:**
+**Examples:**
 ```bash
-# Dry run to see what will happen
-./import_photos.sh -e "Detroit Riverwalk" -n
+# Preview what will happen
+import_photos.sh -e "Detroit Riverwalk" -n
 
-# Import for real
-./import_photos.sh -e "Detroit Riverwalk" -x
+# Import, then eject the card
+import_photos.sh -e "Detroit Riverwalk" -x
 
-# Import from second backup card, continue numbering
-./import_photos.sh -e "Detroit Riverwalk" -s /Volumes/BACKUP -x
+# Second card from the same shoot: DNG numbering continues where the first card left off
+import_photos.sh -e "Detroit Riverwalk" -s /Volumes/BACKUP -x
 ```
+
+**Resulting archive layout:**
+```
+/Volumes/photos-01/
+├── .photo-import-manifest.tsv     # every file imported so far (prevents re-imports)
+├── 20261017/
+│   ├── NEF/                       # raw files, renamed to capture time
+│   │   ├── 20261017201845.NEF
+│   │   └── 2026101720184537.NEF
+│   ├── JPG/
+│   ├── MOV/
+│   └── DNG/                       # converted files, numbered per date + event
+│       ├── 20261017-detroit-riverwalk-00001.dng
+│       └── 20261017-detroit-riverwalk-00002.dng
+└── 20261018/
+    └── ...
+```
+
+**Tips:**
+- Run with `-n` first to preview.
+- If an import is interrupted, re-run the same command to finish it.
+- Use `-V` for byte-for-byte verification (slower; worthwhile with an unreliable card reader).
+- Two events on the same day each get their own DNG number sequence.
 
 ---
 
-## Installation
+### `workflow/rename_nef.sh` — Rename NEF files by capture time
 
-### macOS / OS X
+Renames Nikon NEF files (and matching `.xmp` sidecars) to `YYYYMMDDHHMMSS[subseconds].NEF` using the EXIF `DateTimeOriginal` and `SubSecTimeOriginal` tags.
 
-Copy the scripts to `/usr/local/bin` to use them from anywhere:
+```
+DSC_0142.NEF -> 20261017201845.NEF      (no subseconds available)
+DSC_0143.NEF -> 2026101720184537.NEF    (2026-10-17 20:18:45.37)
+```
+
+**Usage:**
+```bash
+workflow/rename_nef.sh [-n] [-r] DIRECTORY
+  -n   dry run: show what would be renamed, change nothing
+  -r   recurse into subdirectories
+```
+
+If two shots share the exact same subsecond, a `_1`, `_2`, … suffix is added. Files without a capture time are skipped.
+
+---
+
+## Installation (macOS)
+
+### Prerequisites
+
+```bash
+brew install exiftool
+```
+
+`import_photos.sh` also needs **Adobe DNG Converter** (a free download from Adobe) installed in `/Applications`, or set `DNG_CONVERTER` to its path. Use `-k` to skip DNG conversion if it isn't installed.
+
+### Install to `/usr/local/bin`
+
+Copying the scripts to `/usr/local/bin` lets you run them from any directory. Copy **both** scripts — `import_photos.sh` requires `rename_nef.sh` in the same directory.
 
 ```bash
 # From the photo-tools directory
-cp rename_nef.sh /usr/local/bin/
-cp import_photos.sh /usr/local/bin/
-chmod +x /usr/local/bin/rename_nef.sh /usr/local/bin/import_photos.sh
+sudo mkdir -p /usr/local/bin          # not present by default on some Macs
+sudo cp workflow/*.sh /usr/local/bin/
+sudo chmod +x /usr/local/bin/import_photos.sh /usr/local/bin/rename_nef.sh
 ```
 
-Then use them from anywhere:
+Re-run the `cp` after pulling updates to this repository.
+
+### Running from the repository instead
+
 ```bash
-rename_nef.sh ~/Photos/
-import_photos.sh -e "My Event"
+bash workflow/import_photos.sh -e "My Event"
+bash workflow/rename_nef.sh ~/Pictures/some-folder
 ```
 
-Or run them directly from this repository:
-```bash
-./rename_nef.sh ~/Photos/
-./import_photos.sh -e "My Event"
-```
-
-### Linux
-
-The scripts are portable and work on Linux with bash 3.2+, exiftool, and GNU/BSD stat. Note that `import_photos.sh` uses `/Volumes` for mount points (macOS convention); on Linux, adjust the `-s` and `-d` paths to point to your SD card and archive locations.
-
----
-
-## Prerequisites
-
-### macOS
-```bash
-# Install exiftool via Homebrew
-brew install exiftool
-
-# Download and install Adobe DNG Converter
-# Visit: https://helpx.adobe.com/camera-raw/using/adobe-dng-converter.html
-```
-
-### Linux (Debian/Ubuntu)
-```bash
-sudo apt install libimage-exiftool-perl
-# Then install Adobe DNG Converter or use an alternative (e.g., rawtoaces, dcraw)
-```
-
----
-
-## Folder Structure
-
-After importing with `import_photos.sh`, your archive looks like:
-
-```
-/Volumes/photos-01/
-├── 20261017/
-│   ├── NEF/               # Nikon raw files (renamed by capture time)
-│   │   ├── 20261017201845.NEF
-│   │   └── 2026101720184537.NEF
-│   ├── JPG/               # JPEG previews from camera
-│   ├── MOV/               # Videos
-│   └── DNG/               # Adobe DNG conversions (one per event)
-│       ├── 20261017-detroit-riverwalk-00001.dng
-│       └── 20261017-detroit-riverwalk-00002.dng
-├── 20261018/
-│   ├── NEF/
-│   └── DNG/
-└── .photo-import-manifest.tsv  # Manifest (prevents re-importing)
-```
-
----
-
-## Tips
-
-- **Safe re-insertion:** The manifest remembers every imported file. If you re-insert a card, only new photos are copied.
-- **Backup card workflow:** If your camera has two SD slots, import from the main card first, then the backup. DNG numbering continues automatically.
-- **Verify copies:** Use `-V` to verify byte-for-byte (slower but safer over unreliable USB connections).
-- **Dry run first:** Always use `-n` first to preview what will happen.
-- **Interrupted imports:** If an import is interrupted, re-run the same command to resume and finish.
+Both scripts work with the stock macOS bash 3.2.
