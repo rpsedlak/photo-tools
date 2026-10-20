@@ -7,6 +7,8 @@ A collection of photo management tools, grouped into directories by purpose.
 ```
 photo-tools/
 ├── README.md                 # this file
+├── install/
+│   └── install.sh            # copies every tool script into /usr/local/bin
 └── workflow/                 # post-shoot workflow: SD card import and file organization
     ├── import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
     └── rename_nef.sh         # rename NEFs to capture time (used by import_photos.sh)
@@ -14,11 +16,13 @@ photo-tools/
 
 | Directory   | Purpose                                                            |
 |-------------|--------------------------------------------------------------------|
+| `install/`  | Installing the tools on a Mac (not a tool itself).                 |
 | `workflow/` | Getting photos off the camera and into the archive after a shoot.  |
 
 ### Adding new tools
 
 - Put each tool in a top-level directory named for its purpose (e.g. `workflow/`). Create a new directory when a tool doesn't fit an existing one.
+- `install/install.sh` picks up every `*.sh` one level down (`<tool-dir>/<name>.sh`) automatically. Script names must be unique across all tool directories, since they're all installed into one folder.
 - Keep scripts that call each other in the same directory — `import_photos.sh` finds `rename_nef.sh` by looking next to itself.
 - Add the tool to the tree and table above, and give it a section under [Tools](#tools).
 
@@ -129,16 +133,19 @@ brew install exiftool
 
 ### Install to `/usr/local/bin`
 
-Copying the scripts to `/usr/local/bin` lets you run them from any directory. Copy **both** scripts — `import_photos.sh` requires `rename_nef.sh` in the same directory.
+Installing the scripts to `/usr/local/bin` lets you run them by name from any directory. Run the installer from anywhere in the repository:
 
 ```bash
-# From the photo-tools directory
-sudo mkdir -p /usr/local/bin          # not present by default on some Macs
-sudo cp workflow/*.sh /usr/local/bin/
-sudo chmod +x /usr/local/bin/import_photos.sh /usr/local/bin/rename_nef.sh
+install/install.sh -n      # preview what will be installed
+install/install.sh         # install
 ```
 
-Re-run the `cp` after pulling updates to this repository.
+The installer:
+- copies every tool script (currently `import_photos.sh` and `rename_nef.sh`) into `/usr/local/bin`, creating it if needed;
+- sets each script to mode `755` (`rwxr-xr-x`): every user can run it, only the owner can change it;
+- uses `sudo` only if `/usr/local/bin` isn't writable by you, and asks for your password in that case.
+
+Re-run it after pulling updates; installed copies are replaced. Use `-d DIR` to install somewhere else, e.g. `install/install.sh -d ~/bin`.
 
 ### Running from the repository instead
 
