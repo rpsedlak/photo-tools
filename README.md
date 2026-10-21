@@ -184,13 +184,13 @@ Uploads local folders into Azure Blob Storage containers, one container per cate
 ```bash
 upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
 
-  -a ACCOUNT    storage account name (default: $PHOTO_AZ_ACCOUNT)
+  -a ACCOUNT    storage account name, e.g. rpsphotography001 (default: $PHOTO_AZ_ACCOUNT)
   -u C=DIR      upload folder DIR into container C (repeat for each category)
   -m MAPFILE    read CONTAINER=DIR (or CONTAINER<TAB>DIR) lines from a file
   -p PREFIX     folder inside each container, e.g. 2026/detroit-riverwalk
   -r RETRY      retry folder root (default: $PHOTO_UPLOAD_RETRY, else DIR/.upload-retry)
   -R            retry mode: upload only what is in the retry folders
-  -I user|sp    who signs in: you (az login) or a service principal (default: user)
+  -I user|sp    who signs in: user = your az login, sp = a service principal (default: user)
   -i APP_ID     service principal application (client) ID
   -z TENANT     Entra tenant ID
   -K PEM        service principal certificate (PEM with private key + certificate)
@@ -202,6 +202,28 @@ upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
 ```
 
 Exit status: `0` everything uploaded (or already there), `2` some files failed and were moved to the retry folder, `1` error (nothing uploaded).
+
+**Choosing the storage account (`-a` / `PHOTO_AZ_ACCOUNT`):** this is the *name* of the Azure storage account that holds your category containers. It's the first part of the account's blob address `https://<name>.blob.core.windows.net`. Storage account names are 3–24 lowercase letters and digits and are unique across all of Azure. Use the bare name, not the URL, the resource group, or a container name. To find it:
+```bash
+# every storage account you can see, with its resource group
+az storage account list --query '[].{name:name, group:resourceGroup, location:primaryLocation}' -o table
+
+# check it's the right one: list its containers (these are your categories)
+az storage container list --account-name rpsphotography001 --auth-mode login --query '[].name' -o tsv
+```
+Or in the Azure portal: **Storage accounts** → the account → its name is the page title. Set it once in `~/.zshrc` so you don't need `-a` each time:
+```bash
+export PHOTO_AZ_ACCOUNT=rpsphotography001
+```
+
+**Choosing who signs in (`-I` / `PHOTO_AZ_AUTH`):** this picks the Azure identity the script signs in as, which is also the identity Azure checks for permission to upload. If it's not set, `user` is used.
+
+| Value  | Signs in as | Use it when | Setup needed |
+|--------|-------------|-------------|--------------|
+| `user` | **You**, reusing your existing `az login` (run `az login` once; it lasts for weeks). | You run uploads yourself from your own Mac. The simplest choice. | Give your account the *Storage Blob Data Contributor* role (see [Access requirements](#access-requirements-rbac)). |
+| `sp`   | A **service principal**: an app identity with its own certificate or client secret. It signs in separately, so your own `az login` is left alone. | Uploads run unattended (a scheduled job, another Mac), or you want an identity that can *only* upload photos, not use your full account. | Create the service principal and set `PHOTO_AZ_CLIENT_ID`, `PHOTO_AZ_TENANT_ID` and a certificate or secret (see [Service principal setup](#service-principal-setup)). |
+
+Being *Owner* of the subscription is not enough for either one: Owner manages the account but can't read or write blobs. The pre-upload check (and `-n`) reports this before anything is uploaded.
 
 **Examples:**
 ```bash
@@ -271,7 +293,7 @@ A service principal lets the upload run under its own identity instead of yours,
      Or export `PHOTO_AZ_CLIENT_SECRET` (or `AZURE_CLIENT_SECRET`) only in the shell where you run the upload. Don't put a secret in `~/.zshrc`. There is deliberately no command-line option for the secret, because command lines show up in `ps` and shell history.
 4. **Settings in `~/.zshrc`** (none of these are secret):
    ```bash
-   export PHOTO_AZ_ACCOUNT=photostore
+   export PHOTO_AZ_ACCOUNT=rpsphotography001
    export PHOTO_AZ_AUTH=sp
    export PHOTO_AZ_CLIENT_ID=<appId>
    export PHOTO_AZ_TENANT_ID=<tenant>
@@ -290,7 +312,7 @@ A service principal lets the upload run under its own identity instead of yours,
 | Certificate            | `-K`   | `PHOTO_AZ_CERT_PATH`, `AZURE_CLIENT_CERTIFICATE_PATH`       | —                    |
 | Client secret          | —      | `PHOTO_AZ_CLIENT_SECRET`, `AZURE_CLIENT_SECRET`, then Keychain | —                 |
 | Keychain item          | —      | `PHOTO_AZ_KEYCHAIN_SERVICE`                                 | `photo-tools-azure`  |
-| Storage account        | `-a`   | `PHOTO_AZ_ACCOUNT`                                          | —                    |
+| Storage account name   | `-a`   | `PHOTO_AZ_ACCOUNT`                                          | —                    |
 | azcopy authorization   | `-A`   | `PHOTO_AZ_TRANSFER`                                         | `sas`                |
 | Retry folder root      | `-r`   | `PHOTO_UPLOAD_RETRY`                                        | `DIR/.upload-retry`  |
 | Reports and logs       | —      | `PHOTO_UPLOAD_LOGS`                                         | `~/.photo-tools/upload-runs` |

@@ -25,7 +25,11 @@
 # Usage:
 #   upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
 #
-#   -a ACCOUNT    storage account name (default: $PHOTO_AZ_ACCOUNT)
+#   -a ACCOUNT    name of the Azure storage account that holds the containers:
+#                 the first part of https://ACCOUNT.blob.core.windows.net,
+#                 3-24 lowercase letters/digits, e.g. rpsphotography001; not
+#                 a URL, resource group or container (default: $PHOTO_AZ_ACCOUNT).
+#                 List yours with: az storage account list --query '[].name' -o tsv
 #   -u C=DIR      upload folder DIR into container C (repeat for each category)
 #   -m MAPFILE    read CONTAINER=DIR (or CONTAINER<TAB>DIR) lines from a file;
 #                 blank lines and # comments are ignored
@@ -33,8 +37,16 @@
 #   -r RETRY      retry folder root (default: $PHOTO_UPLOAD_RETRY, else
 #                 DIR/.upload-retry for each DIR)
 #   -R            retry mode: upload only what is in the retry folders
-#   -I user|sp    who signs in: you (az login) or a service principal
-#                 (default: $PHOTO_AZ_AUTH, else user)
+#   -I user|sp    which Azure identity signs in and uploads (default: $PHOTO_AZ_AUTH,
+#                 else user):
+#                   user  you: reuses your existing 'az login' sign-in. Simplest;
+#                         use it when you run uploads yourself.
+#                   sp    a service principal (an app identity with its own
+#                         certificate or secret): signs in separately, leaving
+#                         your 'az login' alone. Use it for scheduled/unattended
+#                         runs or to limit access to just the photo storage.
+#                         Needs -i, -z and -K or a client secret.
+#                 Either one needs the 'Storage Blob Data Contributor' role.
 #   -i APP_ID     service principal application (client) ID
 #                 (default: $PHOTO_AZ_CLIENT_ID, else $AZURE_CLIENT_ID)
 #   -z TENANT     Entra tenant ID (default: $PHOTO_AZ_TENANT_ID, else $AZURE_TENANT_ID)
@@ -51,8 +63,8 @@
 #                 uploaded, change nothing
 #
 # Environment:
-#   PHOTO_AZ_ACCOUNT        storage account (same as -a)
-#   PHOTO_AZ_AUTH           user or sp (same as -I)
+#   PHOTO_AZ_ACCOUNT        storage account name, e.g. rpsphotography001 (same as -a)
+#   PHOTO_AZ_AUTH           user (your az login) or sp (service principal) (same as -I)
 #   PHOTO_AZ_CLIENT_ID      service principal app ID (same as -i; falls back to AZURE_CLIENT_ID)
 #   PHOTO_AZ_TENANT_ID      tenant ID (same as -z; falls back to AZURE_TENANT_ID)
 #   PHOTO_AZ_CERT_PATH      certificate PEM (same as -K; falls back to AZURE_CLIENT_CERTIFICATE_PATH)
@@ -331,6 +343,17 @@ while [ $i -lt ${#E_C[@]} ]; do
         exit 1
     fi
     [ "$out" = "true" ] || die "container '$c' does not exist in storage account '$ACCOUNT'. Create it first (this script never creates containers)."
+    # "exists" only needs a management role such as Owner; reading blobs needs
+    # a data role, which uploads need too, so check that before uploading.
+    if ! az storage blob list --account-name "$ACCOUNT" -c "$c" --auth-mode login \
+             --num-results 1 --query '[].name' -o tsv > /dev/null 2> "$WORK/exists.err"; then
+        echo "Error: $IDENTITY can see container '$c' in '$ACCOUNT' but cannot read or upload blobs:" >&2
+        sed -e '/^[[:space:]]*$/d' "$WORK/exists.err" | head -n 2 | redact | sed 's/^/  /' >&2
+        echo "  Owner and Contributor don't include blob data access. $IDENTITY needs the" >&2
+        echo "  'Storage Blob Data Contributor' role on storage account $ACCOUNT (or on container $c)." >&2
+        echo "  New role assignments can take up to 10 minutes to apply." >&2
+        exit 1
+    fi
 done
 
 # ---------- 3. what to upload -------------------------------------------------
