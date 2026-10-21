@@ -5,6 +5,10 @@
 #   exiftool             Homebrew formula  (import_photos.sh, rename_nef.sh)
 #   Adobe DNG Converter  Homebrew cask     (import_photos.sh)
 #
+# Optional, only for upload_azure.sh (reported, never installed automatically,
+# and never a reason to fail):
+#   Azure CLI, azcopy, jq   brew install azure-cli azcopy jq
+#
 # Anything missing is installed with Homebrew. Homebrew itself is not
 # installed automatically; if it's missing you're told how to get it.
 # The DNG Converter cask runs Adobe's installer, which asks for your password.
@@ -109,8 +113,24 @@ if ! check_dng; then
     fi
 fi
 
+# ---------- optional: Azure upload tools (upload_azure.sh) --------------------
+opt_missing=""
+for t in "az:azure-cli:Azure CLI" "azcopy:azcopy:azcopy" "jq:jq:jq"; do
+    cmd="${t%%:*}"; rest="${t#*:}"; formula="${rest%%:*}"; label="${rest#*:}"
+    if p=$(command -v "$cmd" 2>/dev/null); then
+        ok "$label  ($p)  [optional]"
+    else
+        printf 'OPTIONAL %s not installed (only upload_azure.sh needs it)\n' "$label"
+        opt_missing="$opt_missing $formula"
+    fi
+done
+
 # ---------- summary ----------------------------------------------------------
 echo ""
+if [ -n "$opt_missing" ]; then
+    echo "To upload to Azure with upload_azure.sh, also run: brew install$opt_missing"
+    echo ""
+fi
 if [ -n "$need_brew" ]; then
     echo "Homebrew is needed to install:${need_brew%,}"
     echo "Install Homebrew from https://brew.sh, then re-run this script."
