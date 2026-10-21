@@ -61,6 +61,10 @@
 #                 (default: never replace a blob that is already there)
 #   -n            dry run: sign in and check access, show what would be
 #                 uploaded, change nothing
+#   -v            verbose, for debugging: show each setting and where it came
+#                 from, every az/azcopy command (secrets hidden) with its exit
+#                 code and time, and full error messages; azcopy logs at INFO
+#                 level. Also saved to debug.log in the run folder (except -n).
 #
 # Environment:
 #   PHOTO_AZ_ACCOUNT        storage account name, e.g. rpsphotography001 (same as -a)
@@ -77,6 +81,7 @@
 #   PHOTO_UPLOAD_RETRY      retry folder root (same as -r)
 #   PHOTO_UPLOAD_LOGS       where run reports and azcopy logs go
 #                           (default: ~/.photo-tools/upload-runs)
+#   PHOTO_UPLOAD_VERBOSE    1 = verbose (same as -v)
 #   Options given on the command line win over these.
 #
 # Exit status: 0 all files uploaded (or already there), 2 some files failed
@@ -98,22 +103,59 @@ KEYCHAIN_SERVICE="${PHOTO_AZ_KEYCHAIN_SERVICE:-photo-tools-azure}"
 TRANSFER="${PHOTO_AZ_TRANSFER:-sas}"
 RETRY_ROOT="${PHOTO_UPLOAD_RETRY:-}"
 RUNS_ROOT="${PHOTO_UPLOAD_LOGS:-$HOME/.photo-tools/upload-runs}"
+case "${PHOTO_UPLOAD_VERBOSE:-0}" in 1|[Yy]*|[Tt]rue) VERBOSE=1 ;; *) VERBOSE=0 ;; esac
+
+src_of() {        # where a setting came from: $1 = option letter, then env names
+    local opt="$1" v; shift
+    case "$OPTS_GIVEN" in *"$opt"*) echo "option -$opt"; return ;; esac
+    for v in "$@"; do
+        if [ -n "$(printenv "$v")" ]; then echo "\$$v"; return; fi
+    done
+    echo "default"
+}
 BLOB_SUFFIX="blob.core.windows.net"
 HIDDEN_RE='(^|/)\.'             # skip hidden files and anything in hidden folders
 SHOW_FAILS=20                   # FAIL lines printed per container; all go in the report
 
 PREFIX=""; SAS_HOURS=24; TIER=""; OVERWRITE=0; RETRY_MODE=0; DRY_RUN=0
 SPEC_LINES=""                   # CONTAINER=DIR lines from -u and -m
+OPTS_GIVEN=""                   # option letters used, for the -v settings list
+ERR_LINES=3                     # lines of az error output shown (all of them with -v)
+DEBUG_LOG=""
+exec 3>&2                       # -v output; stays on the screen even when stderr is captured
 
 usage() { sed -n '/^# Usage:/,/^# Exit status/p' "$0" | sed -e 's/^# \{0,1\}//' -e '$d' >&2; exit 1; }
 die()   { echo "Error: $*" >&2; exit 1; }
 log()   { echo "$*"; }
 warn()  { echo "Warning: $*" >&2; }
 redact() { sed -E 's/(sig=)[^&"[:space:]]*/\1REDACTED/g'; }
+vlog() {          # -v only: to the screen (fd 3) and debug.log, SAS signatures hidden
+    [ "$VERBOSE" -eq 1 ] || return 0
+    local line
+    line=$(printf '[%s] %s' "$(date +%H:%M:%S)" "$*" | redact)
+    if [ "${PROG_TTY:-0}" -eq 1 ]; then printf '\r\033[K' >&3; fi
+    printf 'debug %s\n' "$line" >&3
+    [ -z "$DEBUG_LOG" ] || printf '%s\n' "$line" >> "$DEBUG_LOG"
+}
+trace() {         # run a command; with -v log it (secrets hidden), its exit code and time
+    [ "$VERBOSE" -eq 1 ] || { "$@"; return; }
+    local a shown="" hide=0 t0=$SECONDS rc
+    for a in "$@"; do
+        if [ "$hide" -eq 1 ]; then a="<hidden>"; hide=0; fi
+        case "$a" in -p|--password|--client-secret) hide=1 ;; esac
+        case "$a" in *[[:space:]]*|"") a="'$a'" ;; esac
+        shown="$shown $a"
+    done
+    vlog "run:$shown"
+    "$@"; rc=$?
+    vlog "    exit $rc after $((SECONDS - t0))s"
+    return $rc
+}
 NL='
 '
 
-while getopts ":a:u:m:p:r:RI:i:z:K:A:t:T:Onh" opt; do
+while getopts ":a:u:m:p:r:RI:i:z:K:A:t:T:Onvh" opt; do
+    OPTS_GIVEN="$OPTS_GIVEN$opt"
     case "$opt" in
         a) ACCOUNT="$OPTARG" ;;
         u) SPEC_LINES="$SPEC_LINES$OPTARG$NL" ;;
@@ -131,6 +173,7 @@ while getopts ":a:u:m:p:r:RI:i:z:K:A:t:T:Onh" opt; do
         T) TIER="$OPTARG" ;;
         O) OVERWRITE=1 ;;
         n) DRY_RUN=1 ;;
+        v) VERBOSE=1 ;;
         *) usage ;;
     esac
 done
@@ -240,13 +283,42 @@ case "$(azcopy --version 2>/dev/null)" in
     *" 10."*) ;;
     *) die "azcopy version 10 is required (found: $(azcopy --version 2>&1 | head -n 1))." ;;
 esac
-export AZURE_CORE_ONLY_SHOW_ERRORS=true
+# Warnings from az are hidden normally; with -v they are kept, with full errors.
+if [ "$VERBOSE" -eq 1 ]; then ERR_LINES=1000; else export AZURE_CORE_ONLY_SHOW_ERRORS=true; fi
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/photo-upload.XXXXXX") || die "cannot create a temp folder"
 AZ_DIR=""; SECRET=""
 # shellcheck disable=SC2329  # called from the EXIT trap
-cleanup() { rm -rf "$WORK"; [ -z "$AZ_DIR" ] || rm -rf "$AZ_DIR"; }
+cleanup() {
+    local rc=$?
+    vlog "exit status $rc"
+    rm -rf "$WORK"; [ -z "$AZ_DIR" ] || rm -rf "$AZ_DIR"
+}
 trap cleanup EXIT
+
+if [ "$VERBOSE" -eq 1 ]; then
+    DEBUG_LOG="$WORK/debug.log"
+    vlog "upload_azure.sh $(date '+%Y-%m-%d %H:%M:%S'), pid $$"
+    vlog "tools: $(azcopy --version 2>&1 | head -n 1); az $(az version --query '"azure-cli"' -o tsv 2>/dev/null); $(jq --version 2>&1); bash $BASH_VERSION; macOS $(sw_vers -productVersion 2>/dev/null || uname -r)"
+    vlog "paths: az=$(command -v az) azcopy=$(command -v azcopy) jq=$(command -v jq)"
+    vlog "setting account   = $ACCOUNT  [$(src_of a PHOTO_AZ_ACCOUNT)]"
+    vlog "setting auth      = $AUTH  [$(src_of I PHOTO_AZ_AUTH)]"
+    if [ "$AUTH" = "sp" ]; then
+        vlog "setting client id = ${CLIENT_ID:-<none>}  [$(src_of i PHOTO_AZ_CLIENT_ID AZURE_CLIENT_ID)]"
+        vlog "setting tenant id = ${TENANT_ID:-<none>}  [$(src_of z PHOTO_AZ_TENANT_ID AZURE_TENANT_ID)]"
+        vlog "setting cert      = ${CERT_PATH:-<none>}  [$(src_of K PHOTO_AZ_CERT_PATH AZURE_CLIENT_CERTIFICATE_PATH)]"
+        vlog "setting secret    = $(if [ -n "${PHOTO_AZ_CLIENT_SECRET:-}" ]; then echo "set in \$PHOTO_AZ_CLIENT_SECRET"; elif [ -n "${AZURE_CLIENT_SECRET:-}" ]; then echo "set in \$AZURE_CLIENT_SECRET"; else echo "not in the environment (Keychain item '$KEYCHAIN_SERVICE' is tried)"; fi)"
+    fi
+    vlog "setting transfer  = $TRANSFER  [$(src_of A PHOTO_AZ_TRANSFER)]"
+    vlog "setting prefix    = ${PREFIX:-<none>}; SAS hours = $SAS_HOURS; tier = ${TIER:-<account default>}; overwrite = $([ "$OVERWRITE" -eq 1 ] && echo ifSourceNewer || echo false); retry mode = $RETRY_MODE; dry run = $DRY_RUN"
+    vlog "setting retry     = ${RETRY_ROOT:-DIR/.upload-retry}  [$(src_of r PHOTO_UPLOAD_RETRY)]"
+    vlog "setting logs      = $RUNS_ROOT  [$(src_of x PHOTO_UPLOAD_LOGS)]"
+    i=0
+    while [ $i -lt ${#E_C[@]} ]; do
+        vlog "folder  ${E_C[$i]} <- ${E_D[$i]}  (retry root ${E_R[$i]})"; i=$((i + 1))
+    done
+    vlog "AZURE_CONFIG_DIR=${AZURE_CONFIG_DIR:-<default ~/.azure>}"
+fi
 trap 'progress_end; echo ""
       echo "Interrupted. Nothing was moved to the retry folder; re-run the same command (files already uploaded are skipped)." >&2
       exit 130' INT TERM
@@ -269,10 +341,11 @@ login_hint() {    # $1 = file with az's error output
 
 CRED_DESC=""
 if [ "$AUTH" = "user" ]; then
-    who=$(az account show --query user.name -o tsv 2>/dev/null) || \
+    who=$(trace az account show --query user.name -o tsv 2>/dev/null) || \
         die "you are not signed in to the Azure CLI. Run: az login   (or use -I sp for a service principal)"
     IDENTITY="user:$who"
     CRED_DESC="your Azure CLI sign-in"
+    vlog "az account: $(az account show --query '[name, id, tenantId]' -o tsv 2>/dev/null | tr '\t\n' '  ')"
 else
     if [ -n "$CERT_PATH" ]; then
         CERT_PATH=$(abs_path "$CERT_PATH")
@@ -285,7 +358,7 @@ else
     elif [ -n "${AZURE_CLIENT_SECRET:-}" ]; then
         SECRET="$AZURE_CLIENT_SECRET"; CRED_DESC="client secret from AZURE_CLIENT_SECRET"
     else
-        SECRET=$(security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$CLIENT_ID" -w 2>/dev/null || true)
+        SECRET=$(trace security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$CLIENT_ID" -w 2>/dev/null || true)
         [ -n "$SECRET" ] || die "no credential for service principal $CLIENT_ID. Provide one of:
   a certificate:   -K PEM, PHOTO_AZ_CERT_PATH or AZURE_CLIENT_CERTIFICATE_PATH
   a client secret: PHOTO_AZ_CLIENT_SECRET or AZURE_CLIENT_SECRET
@@ -299,14 +372,14 @@ else
     export AZURE_CONFIG_DIR="$AZ_DIR"
     log "Signing in as service principal $CLIENT_ID ($CRED_DESC)..."
     if [ -n "$CERT_PATH" ]; then
-        az login --service-principal -u "$CLIENT_ID" --tenant "$TENANT_ID" \
+        trace az login --service-principal -u "$CLIENT_ID" --tenant "$TENANT_ID" \
                  --certificate "$CERT_PATH" --allow-no-subscriptions -o none 2> "$WORK/login.err"
     else
-        az login --service-principal -u "$CLIENT_ID" --tenant "$TENANT_ID" \
+        trace az login --service-principal -u "$CLIENT_ID" --tenant "$TENANT_ID" \
                  -p "$SECRET" --allow-no-subscriptions -o none 2> "$WORK/login.err"
     fi || {
         echo "Error: service principal sign-in failed:" >&2
-        sed -e '/^[[:space:]]*$/d' "$WORK/login.err" | head -n 5 | sed 's/^/  /' >&2
+        sed -e '/^[[:space:]]*$/d' "$WORK/login.err" | head -n "$((ERR_LINES + 2))" | sed 's/^/  /' >&2
         login_hint "$WORK/login.err" >&2
         exit 1
     }
@@ -330,10 +403,10 @@ while [ $i -lt ${#E_C[@]} ]; do
     c="${E_C[$i]}"; i=$((i + 1))
     case "$checked" in *"|$c|"*) continue ;; esac
     checked="$checked$c|"
-    if ! out=$(az storage container exists --account-name "$ACCOUNT" -n "$c" --auth-mode login \
+    if ! out=$(trace az storage container exists --account-name "$ACCOUNT" -n "$c" --auth-mode login \
                    --query exists -o tsv 2> "$WORK/exists.err"); then
         echo "Error: cannot reach container '$c' in '$ACCOUNT' as $IDENTITY:" >&2
-        sed -e '/^[[:space:]]*$/d' "$WORK/exists.err" | head -n 3 | redact | sed 's/^/  /' >&2
+        sed -e '/^[[:space:]]*$/d' "$WORK/exists.err" | head -n "$ERR_LINES" | redact | sed 's/^/  /' >&2
         case "$(cat "$WORK/exists.err")" in
             *AuthorizationPermissionMismatch*|*AuthorizationFailure*|*"not authorized"*|*403*)
                 echo "  $IDENTITY needs the 'Storage Blob Data Contributor' role on storage account $ACCOUNT" >&2
@@ -342,13 +415,14 @@ while [ $i -lt ${#E_C[@]} ]; do
         esac
         exit 1
     fi
+    vlog "container $c exists: $out"
     [ "$out" = "true" ] || die "container '$c' does not exist in storage account '$ACCOUNT'. Create it first (this script never creates containers)."
     # "exists" only needs a management role such as Owner; reading blobs needs
     # a data role, which uploads need too, so check that before uploading.
-    if ! az storage blob list --account-name "$ACCOUNT" -c "$c" --auth-mode login \
+    if ! trace az storage blob list --account-name "$ACCOUNT" -c "$c" --auth-mode login \
              --num-results 1 --query '[].name' -o tsv > /dev/null 2> "$WORK/exists.err"; then
         echo "Error: $IDENTITY can see container '$c' in '$ACCOUNT' but cannot read or upload blobs:" >&2
-        sed -e '/^[[:space:]]*$/d' "$WORK/exists.err" | head -n 2 | redact | sed 's/^/  /' >&2
+        sed -e '/^[[:space:]]*$/d' "$WORK/exists.err" | head -n "$ERR_LINES" | redact | sed 's/^/  /' >&2
         echo "  Owner and Contributor don't include blob data access. $IDENTITY needs the" >&2
         echo "  'Storage Blob Data Contributor' role on storage account $ACCOUNT (or on container $c)." >&2
         echo "  New role assignments can take up to 10 minutes to apply." >&2
@@ -405,6 +479,10 @@ RUN_DIR="$RUNS_ROOT/$(date +%Y%m%d-%H%M%S)-$$"
 { mkdir -p "$RUN_DIR" && chmod 700 "$RUN_DIR"; } || die "cannot create $RUN_DIR"
 export AZCOPY_LOG_LOCATION="$RUN_DIR/logs" AZCOPY_JOB_PLAN_LOCATION="$RUN_DIR/plans"
 REPORT="$RUN_DIR/report.txt"
+if [ "$VERBOSE" -eq 1 ]; then
+    cat "$DEBUG_LOG" > "$RUN_DIR/debug.log" 2>/dev/null; DEBUG_LOG="$RUN_DIR/debug.log"
+    vlog "run folder $RUN_DIR (debug.log, report.txt, azcopy logs in logs/)"
+fi
 {
     echo "upload_azure.sh  $(date '+%Y-%m-%d %H:%M:%S')"
     echo "account   $ACCOUNT"
@@ -416,7 +494,7 @@ REPORT="$RUN_DIR/report.txt"
 
 # ---------- 4. upload ---------------------------------------------------------
 make_sas() {      # $1 = container -> SAS on stdout (never logged)
-    az storage container generate-sas --account-name "$ACCOUNT" -n "$1" \
+    trace az storage container generate-sas --account-name "$ACCOUNT" -n "$1" \
         --as-user --auth-mode login --permissions rcwl --https-only \
         --start "$(utc_in -5)" --expiry "$(utc_in $((SAS_HOURS * 60)))" \
         -o tsv 2> "$WORK/sas.err"
@@ -431,6 +509,7 @@ azcopy_auth_env() {   # used only in the subshell that runs azcopy copy
     else
         export AZCOPY_AUTO_LOGIN_TYPE=AZCLI
     fi
+    vlog "azcopy sign-in: $(env | sed -n 's/^\(AZCOPY_[A-Z_]*\)=.*/\1/p' | grep -v 'LOCATION$' | sort | tr '\n' ' ')(values not shown)"
 }
 
 # Turns azcopy's JSON output into tab-separated lines for the progress loop.
@@ -477,30 +556,34 @@ while [ $j -lt ${#J_C[@]} ]; do
         sas=$(make_sas "$c") || sas=""
         case "$sas" in *sig=*) ;; *)
             echo "Error: could not create a SAS for container '$c':" >&2
-            sed -e '/^[[:space:]]*$/d' "$WORK/sas.err" | head -n 3 | redact | sed 's/^/  /' >&2
+            sed -e '/^[[:space:]]*$/d' "$WORK/sas.err" | head -n "$ERR_LINES" | redact | sed 's/^/  /' >&2
             echo "  $IDENTITY needs 'Storage Blob Data Contributor' (or 'Storage Blob Delegator') on $ACCOUNT." >&2
             exit 1 ;;
         esac
         url="$dest?$sas"
+        vlog "SAS for $c: $sas"
     fi
 
     copy_args=(copy "$src/*" "$url" --recursive --put-md5 --exclude-regex "$HIDDEN_RE"
-               --log-level=WARNING --output-type=json)
+               --log-level="$([ "$VERBOSE" -eq 1 ] && echo INFO || echo WARNING)" --output-type=json)
     if [ "$OVERWRITE" -eq 1 ]; then copy_args+=(--overwrite=ifSourceNewer); else copy_args+=(--overwrite=false); fi
     [ -z "$TIER" ] || copy_args+=(--block-blob-tier="$TIER")
 
     rm -f "$WORK/jobid" "$WORK/errors"
     t0=$SECONDS
+    vlog "run: azcopy ${copy_args[*]}"
     ( azcopy_auth_env; exec azcopy "${copy_args[@]}" ) 2>&1 |
         jq -R --unbuffered -r "$JQ_PROGRESS" 2>/dev/null |
         while IFS=$'\t' read -r kind a b e f g; do
             case "$kind" in
-                INIT)     printf '%s\n' "$a" > "$WORK/jobid" ;;
+                INIT)     printf '%s\n' "$a" > "$WORK/jobid"
+                          vlog "azcopy job $a; log: $AZCOPY_LOG_LOCATION/$a.log" ;;
                 Progress) done_n=$((a + b + e)); [ "$f" -gt 0 ] 2>/dev/null || f=$n
                           progress $(( done_n * 100 / f )) \
                               "    $done_n/$f file(s), $(size_h "${g:-0}") sent, $(timing "$t0" "$done_n" "$f")" ;;
-                ERROR)    printf '%s\n' "$a" | redact >> "$WORK/errors" ;;
-                TEXT)     case "$a" in INFO:*) ;; *) printf '%s\n' "$a" | redact >> "$WORK/errors" ;; esac ;;
+                ERROR)    printf '%s\n' "$a" | redact >> "$WORK/errors"; vlog "azcopy error: $a" ;;
+                TEXT)     vlog "azcopy: $a"
+                          case "$a" in INFO:*) ;; *) printf '%s\n' "$a" | redact >> "$WORK/errors" ;; esac ;;
             esac
         done
     progress_end
@@ -510,17 +593,19 @@ while [ $j -lt ${#J_C[@]} ]; do
     : > "$WORK/status"
     job=$(cat "$WORK/jobid" 2>/dev/null || true)
     if [ -n "$job" ]; then
-        azcopy jobs show "$job" --with-status=All --output-type=json 2>/dev/null |
+        trace azcopy jobs show "$job" --with-status=All --output-type=json 2>/dev/null |
             jq -R -r 'fromjson? | select(.MessageType == "ListJobTransfers") | .MessageContent | fromjson
                       | .Details[]? | select(.IsFolderProperties | not)
                       | [.Src, .TransferStatus, (.ErrorCode | tostring)] | join("\t")' > "$WORK/status"
     fi
 
+    vlog "job ${job:-<none>} transfer status: $(cut -f2 "$WORK/status" | sort | uniq -c | awk '{ printf "%s%s=%s", (NR > 1 ? ", " : ""), $2, $1 }')"
+
     # A skipped file only counts if the blob already there is the same size;
     # otherwise a different photo with that name is in the way.
     : > "$WORK/blobs"
     if grep -q '	Skipped' "$WORK/status"; then
-        az storage blob list --account-name "$ACCOUNT" -c "$c" --auth-mode login \
+        trace az storage blob list --account-name "$ACCOUNT" -c "$c" --auth-mode login \
             ${bp:+--prefix "$bp/"} --num-results '*' \
             --query '[].[name, properties.contentLength]' -o tsv > "$WORK/blobs" 2>/dev/null || \
             warn "could not list $c to check skipped files; they are treated as failed."
@@ -538,6 +623,10 @@ while [ $j -lt ${#J_C[@]} ]; do
             else o = "fail"
             print $1, $2, o, p[1], p[2]
         }' "$WORK/status" "$WORK/blobs" "$WORK/list" > "$WORK/outcome"
+    if [ "$VERBOSE" -eq 1 ]; then
+        { printf '# file\tsize\toutcome\tazcopy status\tHTTP code\n'; cat "$WORK/outcome"; } > "$RUN_DIR/outcome-$j-$c.tsv"
+        vlog "per-file outcome: $RUN_DIR/outcome-$j-$c.tsv"
+    fi
 
     first_error=$(head -n 1 "$WORK/errors" 2>/dev/null | cut -c 1-200)
     ok=0; skip=0; fail=0; shown=0; kept_back=0
@@ -622,7 +711,9 @@ while [ $j -lt ${#J_C[@]} ]; do
 done
 
 # ---------- 5. report ---------------------------------------------------------
-rm -rf "$AZCOPY_JOB_PLAN_LOCATION"      # the retry folder replaces azcopy's own resume
+# The retry folder replaces azcopy's own resume; -v keeps the plans for 'azcopy jobs show'.
+if [ "$VERBOSE" -eq 1 ]; then vlog "kept azcopy job plans in $AZCOPY_JOB_PLAN_LOCATION"
+else rm -rf "$AZCOPY_JOB_PLAN_LOCATION"; fi
 { echo ""; echo "summary"; printf '%s' "$SUMMARY"; } >> "$REPORT"
 
 log ""

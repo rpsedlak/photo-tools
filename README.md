@@ -199,6 +199,7 @@ upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
   -T TIER       blob tier: Hot, Cool, Cold or Archive (default: the account's)
   -O            replace a blob when the local file is newer (default: never replace)
   -n            dry run: sign in and check access, show what would be uploaded
+  -v            verbose: show settings, every az/azcopy command and full errors (for debugging)
 ```
 
 Exit status: `0` everything uploaded (or already there), `2` some files failed and were moved to the retry folder, `1` error (nothing uploaded).
@@ -316,6 +317,7 @@ A service principal lets the upload run under its own identity instead of yours,
 | azcopy authorization   | `-A`   | `PHOTO_AZ_TRANSFER`                                         | `sas`                |
 | Retry folder root      | `-r`   | `PHOTO_UPLOAD_RETRY`                                        | `DIR/.upload-retry`  |
 | Reports and logs       | —      | `PHOTO_UPLOAD_LOGS`                                         | `~/.photo-tools/upload-runs` |
+| Verbose output         | `-v`   | `PHOTO_UPLOAD_VERBOSE=1`                                    | off                  |
 
 If both a certificate and a secret are set, the certificate is used.
 
@@ -325,6 +327,18 @@ If both a certificate and a secret are set, the certificate is used.
 
 **Tips:**
 - Run with `-n` first. It signs in and checks every container, so a missing role or wrong ID shows up before a long upload starts.
+- **Debugging:** add `-v` (or set `PHOTO_UPLOAD_VERBOSE=1`) to see what the script is doing. Lines starting with `debug` go to stderr and show:
+  - every setting and where it came from (option, environment variable, or default), plus tool versions;
+  - each `az`/`azcopy` command as it runs, with its exit code and how long it took;
+  - the full error text from `az`, not just the first lines;
+  - azcopy's job ID and log file, and how many files ended in each transfer status.
+
+  azcopy also logs at INFO level instead of WARNING. Besides `report.txt` and azcopy's `logs/`, the run folder keeps:
+  - `debug.log`: the same debug lines;
+  - `outcome-N-<container>.tsv`: each file's size, outcome, azcopy status and HTTP code;
+  - `plans/`: azcopy's job plans, so `AZCOPY_JOB_PLAN_LOCATION=<run folder>/plans azcopy jobs show <job ID>` still works afterwards.
+
+  SAS signatures and client secrets are always shown as `REDACTED`/`<hidden>`. With `-n`, debug lines are only shown on screen, since a dry run writes no files.
 - If every file fails at once, the cause is usually the network, the account firewall, a missing role, or an expired SAS. The script says so and points at the azcopy log.
 - For uploads that may run longer than the SAS lifetime (`-t`, at most 167 hours), use `-A oauth`.
 - Ctrl-C stops the upload without moving anything to the retry folder. Re-run the same command; files that already made it are skipped.
