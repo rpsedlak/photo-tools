@@ -33,7 +33,8 @@
 #   -u C=DIR      upload folder DIR into container C (repeat for each category)
 #   -m MAPFILE    read CONTAINER=DIR (or CONTAINER<TAB>DIR) lines from a file;
 #                 blank lines and # comments are ignored
-#   -p PREFIX     folder inside each container, e.g. 2026/detroit-riverwalk
+#   -p PREFIX     optional extra folder in front of everything uploaded,
+#                 e.g. 2026 puts DIR/20261017/a.dng at 2026/20261017/a.dng
 #   -r RETRY      retry folder root (default: $PHOTO_UPLOAD_RETRY, else
 #                 DIR/.upload-retry for each DIR)
 #   -R            retry mode: upload only what is in the retry folders
@@ -115,6 +116,7 @@ src_of() {        # where a setting came from: $1 = option letter, then env name
 }
 BLOB_SUFFIX="blob.core.windows.net"
 HIDDEN_RE='(^|/)\.'             # skip hidden files and anything in hidden folders
+GENERAL_DIR="general"           # container folder for files directly inside DIR
 SHOW_FAILS=20                   # FAIL lines printed per container; all go in the report
 
 PREFIX=""; SAS_HOURS=24; TIER=""; OVERWRITE=0; RETRY_MODE=0; DRY_RUN=0
@@ -451,23 +453,43 @@ while [ $i -lt ${#E_C[@]} ]; do
 done
 if [ ${#J_C[@]} -eq 0 ]; then log "Nothing to do."; exit 0; fi
 
-list_files() {    # $1 = folder -> "relative path<TAB>size" lines, hidden skipped
+# $1 = folder, $2 = prefix -> "relative path<TAB>size<TAB>blob name" lines,
+# hidden files skipped. Each first-level subfolder keeps its name in the
+# container; files directly inside the folder go into GENERAL_DIR.
+list_files() {
     (cd "$1" && find . -type f ! -path '*/.*' -exec stat -f '%N%t%z' {} + 2>/dev/null) |
-        sed 's|^\./||' | awk -F'\t' 'NF == 2' | LC_ALL=C sort
+        sed 's|^\./||' | LC_ALL=C sort |
+        awk -F'\t' -v OFS='\t' -v bp="${2:+$2/}" -v g="$GENERAL_DIR" '
+            NF == 2 { print $1, $2, bp (index($1, "/") ? $1 : g "/" $1) }'
+}
+
+# A loose file and a file of the same name in DIR/general/ would both become
+# general/NAME; stop before uploading rather than let one replace the other.
+check_general_clash() {   # $1 = folder, $2 = list file
+    local clash
+    clash=$(awk -F'\t' -v g="$GENERAL_DIR/" '
+        { seen[$1] = 1 }
+        END { for (f in seen) if (index(f, "/") == 0 && ((g f) in seen)) print f }' "$2" | LC_ALL=C sort)
+    [ -z "$clash" ] || die "these files in $1 would land on the same blob as files in its '$GENERAL_DIR' subfolder (files directly in the folder go to $GENERAL_DIR/):
+$(printf '%s\n' "$clash" | head -n 10 | sed 's/^/  /')
+Rename or move one of each pair, then run again."
 }
 
 if [ "$DRY_RUN" -eq 1 ]; then
     j=0
     while [ $j -lt ${#J_C[@]} ]; do
         c="${J_C[$j]}"; src="${J_SRC[$j]}"; bp="${J_PREFIX[$j]}"; r="${J_R[$j]}"; j=$((j + 1))
-        list_files "$src" > "$WORK/list"
+        list_files "$src" "$bp" > "$WORK/list"
+        check_general_clash "$src" "$WORK/list"
         n=$(wc -l < "$WORK/list" | tr -d ' ')
+        loose=$(awk -F'\t' 'index($1, "/") == 0' "$WORK/list" | wc -l | tr -d ' ')
         bytes=$(awk -F'\t' '{ s += $2 } END { printf "%d", s }' "$WORK/list")
         log "$c: WOULD upload $n file(s), $(size_h "$bytes")"
         log "    from  $src"
         log "    to    https://$ACCOUNT.$BLOB_SUFFIX/$c/${bp:+$bp/}"
+        [ "$loose" -eq 0 ] || log "          ($loose file(s) directly in the folder go to ${bp:+$bp/}$GENERAL_DIR/)"
         [ "$RETRY_MODE" -eq 1 ] || log "    retry $r/$c/"
-        head -n 5 "$WORK/list" | cut -f 1 | sed "s|^|      ${bp:+$bp/}|"
+        head -n 5 "$WORK/list" | awk -F'\t' '{ print "      " $1 "  ->  " $3 }'
         [ "$n" -le 5 ] || log "      ... and $((n - 5)) more"
     done
     log ""
@@ -543,8 +565,10 @@ j=0
 while [ $j -lt ${#J_C[@]} ]; do
     c="${J_C[$j]}"; src="${J_SRC[$j]}"; bp="${J_PREFIX[$j]}"; r="${J_R[$j]}"; j=$((j + 1))
     manifest="$r/retry-manifest.tsv"
-    list_files "$src" > "$WORK/list"
+    list_files "$src" "$bp" > "$WORK/list"
+    check_general_clash "$src" "$WORK/list"
     n=$(wc -l < "$WORK/list" | tr -d ' ')
+    loose=$(awk -F'\t' 'index($1, "/") == 0' "$WORK/list" | wc -l | tr -d ' ')
     [ "$j" -eq 1 ] || log ""
     if [ "$n" -eq 0 ]; then log "$c: nothing to upload in $src"; continue; fi
     bytes=$(awk -F'\t' '{ s += $2 } END { printf "%d", s }' "$WORK/list")
@@ -564,42 +588,55 @@ while [ $j -lt ${#J_C[@]} ]; do
         vlog "SAS for $c: $sas"
     fi
 
-    copy_args=(copy "$src/*" "$url" --recursive --put-md5 --exclude-regex "$HIDDEN_RE"
-               --log-level="$([ "$VERBOSE" -eq 1 ] && echo INFO || echo WARNING)" --output-type=json)
-    if [ "$OVERWRITE" -eq 1 ]; then copy_args+=(--overwrite=ifSourceNewer); else copy_args+=(--overwrite=false); fi
-    [ -z "$TIER" ] || copy_args+=(--block-blob-tier="$TIER")
-
-    rm -f "$WORK/jobid" "$WORK/errors"
+    # Two azcopy passes: subfolders keep their names (top-level files left
+    # out), then the files directly in the folder go into GENERAL_DIR.
+    rm -f "$WORK/jobids" "$WORK/errors"
     t0=$SECONDS
-    vlog "run: azcopy ${copy_args[*]}"
-    ( azcopy_auth_env; exec azcopy "${copy_args[@]}" ) 2>&1 |
-        jq -R --unbuffered -r "$JQ_PROGRESS" 2>/dev/null |
-        while IFS=$'\t' read -r kind a b e f g; do
-            case "$kind" in
-                INIT)     printf '%s\n' "$a" > "$WORK/jobid"
-                          vlog "azcopy job $a; log: $AZCOPY_LOG_LOCATION/$a.log" ;;
-                Progress) done_n=$((a + b + e)); [ "$f" -gt 0 ] 2>/dev/null || f=$n
-                          progress $(( done_n * 100 / f )) \
-                              "    $done_n/$f file(s), $(size_h "${g:-0}") sent, $(timing "$t0" "$done_n" "$f")" ;;
-                ERROR)    printf '%s\n' "$a" | redact >> "$WORK/errors"; vlog "azcopy error: $a" ;;
-                TEXT)     vlog "azcopy: $a"
-                          case "$a" in INFO:*) ;; *) printf '%s\n' "$a" | redact >> "$WORK/errors" ;; esac ;;
-            esac
-        done
+    base=0
+    for pass in sub loose; do
+        if [ "$pass" = "sub" ]; then
+            pass_n=$((n - loose)); pass_url="$url"
+            copy_args=(copy "$src/*" "$pass_url" --recursive --exclude-regex "$HIDDEN_RE|^[^/]+\$")
+        else
+            pass_n=$loose; pass_url="$dest/$GENERAL_DIR${sas:+?$sas}"
+            copy_args=(copy "$src/*" "$pass_url" --exclude-regex "$HIDDEN_RE")
+        fi
+        [ "$pass_n" -gt 0 ] || continue
+        copy_args+=(--put-md5 --log-level="$([ "$VERBOSE" -eq 1 ] && echo INFO || echo WARNING)" --output-type=json)
+        if [ "$OVERWRITE" -eq 1 ]; then copy_args+=(--overwrite=ifSourceNewer); else copy_args+=(--overwrite=false); fi
+        [ -z "$TIER" ] || copy_args+=(--block-blob-tier="$TIER")
+
+        vlog "pass $pass: $pass_n file(s); run: azcopy ${copy_args[*]}"
+        ( azcopy_auth_env; exec azcopy "${copy_args[@]}" ) 2>&1 |
+            jq -R --unbuffered -r "$JQ_PROGRESS" 2>/dev/null |
+            while IFS=$'\t' read -r kind a b e _f g; do
+                case "$kind" in
+                    INIT)     printf '%s\n' "$a" >> "$WORK/jobids"
+                              vlog "azcopy job $a; log: $AZCOPY_LOG_LOCATION/$a.log" ;;
+                    Progress) done_n=$((base + a + b + e))
+                              progress $(( done_n * 100 / n )) \
+                                  "    $done_n/$n file(s), $(size_h "${g:-0}") sent, $(timing "$t0" "$done_n" "$n")" ;;
+                    ERROR)    printf '%s\n' "$a" | redact >> "$WORK/errors"; vlog "azcopy error: $a" ;;
+                    TEXT)     vlog "azcopy: $a"
+                              case "$a" in INFO:*) ;; *) printf '%s\n' "$a" | redact >> "$WORK/errors" ;; esac ;;
+                esac
+            done
+        base=$((base + pass_n))
+    done
     progress_end
-    sas=""; url=""
+    sas=""; url=""; pass_url=""; copy_args=()
 
     # Per-file outcome from azcopy's job record: source path, status, HTTP code.
     : > "$WORK/status"
-    job=$(cat "$WORK/jobid" 2>/dev/null || true)
-    if [ -n "$job" ]; then
-        trace azcopy jobs show "$job" --with-status=All --output-type=json 2>/dev/null |
+    job=$(tr '\n' ' ' < "$WORK/jobids" 2>/dev/null | sed 's/ $//' || true)
+    for jid in $job; do
+        trace azcopy jobs show "$jid" --with-status=All --output-type=json 2>/dev/null |
             jq -R -r 'fromjson? | select(.MessageType == "ListJobTransfers") | .MessageContent | fromjson
                       | .Details[]? | select(.IsFolderProperties | not)
-                      | [.Src, .TransferStatus, (.ErrorCode | tostring)] | join("\t")' > "$WORK/status"
-    fi
+                      | [.Src, .TransferStatus, (.ErrorCode | tostring)] | join("\t")' >> "$WORK/status"
+    done
 
-    vlog "job ${job:-<none>} transfer status: $(cut -f2 "$WORK/status" | sort | uniq -c | awk '{ printf "%s%s=%s", (NR > 1 ? ", " : ""), $2, $1 }')"
+    vlog "job(s) ${job:-<none>} transfer status: $(cut -f2 "$WORK/status" | sort | uniq -c | awk '{ printf "%s%s=%s", (NR > 1 ? ", " : ""), $2, $1 }')"
 
     # A skipped file only counts if the blob already there is the same size;
     # otherwise a different photo with that name is in the way.
@@ -611,20 +648,20 @@ while [ $j -lt ${#J_C[@]} ]; do
             warn "could not list $c to check skipped files; they are treated as failed."
     fi
 
-    # rel <TAB> size <TAB> ok|skip|fail <TAB> status <TAB> code
-    awk -F'\t' -v OFS='\t' -v src="$src/" -v bp="${bp:+$bp/}" '
+    # rel <TAB> size <TAB> ok|skip|fail <TAB> status <TAB> code <TAB> blob
+    awk -F'\t' -v OFS='\t' -v src="$src/" '
         FILENAME == ARGV[1] { st[substr($1, length(src) + 1)] = $2 "\t" $3; next }
         FILENAME == ARGV[2] { bl[$1] = $2; next }
         {
             s = ($1 in st) ? st[$1] : "Missing\t0"
             split(s, p, "\t")
             if (p[1] == "Success") o = "ok"
-            else if (p[1] ~ /^Skipped/ && (bp $1) in bl && bl[bp $1] == $2) o = "skip"
+            else if (p[1] ~ /^Skipped/ && ($3 in bl) && bl[$3] == $2) o = "skip"
             else o = "fail"
-            print $1, $2, o, p[1], p[2]
+            print $1, $2, o, p[1], p[2], $3
         }' "$WORK/status" "$WORK/blobs" "$WORK/list" > "$WORK/outcome"
     if [ "$VERBOSE" -eq 1 ]; then
-        { printf '# file\tsize\toutcome\tazcopy status\tHTTP code\n'; cat "$WORK/outcome"; } > "$RUN_DIR/outcome-$j-$c.tsv"
+        { printf '# file\tsize\toutcome\tazcopy status\tHTTP code\tblob\n'; cat "$WORK/outcome"; } > "$RUN_DIR/outcome-$j-$c.tsv"
         vlog "per-file outcome: $RUN_DIR/outcome-$j-$c.tsv"
     fi
 
@@ -635,8 +672,7 @@ while [ $j -lt ${#J_C[@]} ]; do
         awk -F'\t' -v c="$c" '$1 == c { print $2 "\t" $3 }' "$manifest" > "$WORK/orig"
     fi
 
-    while IFS=$'\t' read -r rel _size o st code; do
-        blob="${bp:+$bp/}$rel"
+    while IFS=$'\t' read -r rel _size o st code blob; do
         if [ "$o" = "fail" ]; then
             case "$st" in
                 Skipped*) if [ "$OVERWRITE" -eq 1 ]; then reason="the container already has a newer '$blob' (not replaced)"

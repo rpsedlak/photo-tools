@@ -165,13 +165,15 @@ If two shots share the exact same subsecond, a `_1`, `_2`, … suffix is added. 
 
 ### `cloud/upload_azure.sh` — Upload photo folders to Azure Blob Storage
 
-Uploads local folders into Azure Blob Storage containers, one container per category (e.g. `landscapes`, `wildlife`), using `azcopy`. Uploads can take hours, so files that fail are moved to a retry folder, and a retry run only uploads those files.
+Uploads local folders into Azure Blob Storage containers, one container per category (e.g. `charlevoix`, `grand-haven`), using `azcopy`. Uploads can take hours, so files that fail are moved to a retry folder, and a retry run only uploads those files.
 
 **Workflow:**
 1. **Sign in** — as you (your existing `az login`) or as a service principal (`-I sp`, see [Service principal setup](#service-principal-setup)).
 2. **Check** — before anything is uploaded, every container is checked: it must exist and the signed-in identity must have access. Problems stop the run with a message naming the missing role.
 3. **Authorize azcopy** — by default the script creates a short-lived **user delegation SAS** for each container. The SAS is signed with your Entra ID sign-in, never with storage account keys, so account keys can stay disabled. It allows only read/create/write/list, never delete, and is HTTPS-only and never printed or logged. With `-A oauth`, azcopy signs in itself instead and renews its own tokens. That suits very long uploads, which could outlast a SAS.
-4. **Upload** — every file under each folder goes to its container, keeping the folder structure (`DIR/20261017/DNG/a.dng` → `<container>/<prefix>/20261017/DNG/a.dng`).
+4. **Upload** — every file under each folder goes to its container (see [Where files go in the container](#where-files-go-in-the-container)):
+   - Each first-level subfolder becomes a folder in the container, keeping everything below it.
+   - Files sitting directly in the folder go into a `general/` folder.
    - Hidden files and folders (`.DS_Store`, `.incoming/`, …) are skipped.
    - Blobs that are already in the container are skipped, so re-running only sends what is new.
    - Each blob gets an MD5 hash.
@@ -187,7 +189,7 @@ upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
   -a ACCOUNT    storage account name, e.g. rpsphotography001 (default: $PHOTO_AZ_ACCOUNT)
   -u C=DIR      upload folder DIR into container C (repeat for each category)
   -m MAPFILE    read CONTAINER=DIR (or CONTAINER<TAB>DIR) lines from a file
-  -p PREFIX     folder inside each container, e.g. 2026/detroit-riverwalk
+  -p PREFIX     optional extra folder in front of everything uploaded, e.g. 2026
   -r RETRY      retry folder root (default: $PHOTO_UPLOAD_RETRY, else DIR/.upload-retry)
   -R            retry mode: upload only what is in the retry folders
   -I user|sp    who signs in: user = your az login, sp = a service principal (default: user)
@@ -226,29 +228,46 @@ export PHOTO_AZ_ACCOUNT=rpsphotography001
 
 Being *Owner* of the subscription is not enough for either one: Owner manages the account but can't read or write blobs. The pre-upload check (and `-n`) reports this before anything is uploaded.
 
+**Where files go in the container:** inside each container, every first-level subfolder of the source folder keeps its name. Files directly in the source folder (not in a subfolder) go into a folder called `general`, which is created the first time and added to after that. For `-u grand-haven=~/Export/GrandHaven`:
+
+| Local file                                  | Blob in `grand-haven`        | With `-p 2026`                    |
+|---------------------------------------------|------------------------------|-----------------------------------|
+| `~/Export/GrandHaven/20261017/DNG/a.dng`    | `20261017/DNG/a.dng`         | `2026/20261017/DNG/a.dng`         |
+| `~/Export/GrandHaven/sunsets/b.jpg`         | `sunsets/b.jpg`              | `2026/sunsets/b.jpg`              |
+| `~/Export/GrandHaven/c.jpg`                 | `general/c.jpg`              | `2026/general/c.jpg`              |
+
+`-p` is optional: it adds the same extra folder (it can have several levels, e.g. `2026/fall`) in front of every blob. Without it, the subfolders and `general/` sit at the top of the container.
+
+- The dry run (`-n`) lists each file with the blob it will become.
+- If the source folder has a subfolder that is itself called `general`, its files go to `general/` too. A loose file with the same name as one in that subfolder would land on the same blob, so the script stops before uploading and lists those files.
+
 **Examples:**
 ```bash
-# Preview: signs in, checks both containers, lists what would go where
-upload_azure.sh -a photostore -u landscapes=~/Export/landscapes -u wildlife=~/Export/wildlife -p 2026/riverwalk -n
+# Preview: signs in, checks both containers, lists each file and the blob it becomes
+upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -n
 
 # Upload
-upload_azure.sh -a photostore -u landscapes=~/Export/landscapes -u wildlife=~/Export/wildlife -p 2026/riverwalk
+upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven
+
+# Same, but under a 2026/ folder in each container
+upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -p 2026
 
 # Some files failed: fix the cause, then upload only those
-upload_azure.sh -a photostore -u landscapes=~/Export/landscapes -u wildlife=~/Export/wildlife -R
+upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -R
 
 # Categories kept in a file (one CONTAINER=DIR per line, # comments allowed)
-upload_azure.sh -a photostore -m ~/photo-categories.txt -p 2026/riverwalk
+upload_azure.sh -a rpsphotography001 -m ~/photo-categories.txt
 ```
 
 **Retry folder layout** (default: inside each source folder, so moving files there is instant and they are never uploaded by a normal run):
 ```
-~/Export/landscapes/
+~/Export/grand-haven/
 ├── 20261017/...                               # files that uploaded stay where they were
 └── .upload-retry/
     ├── retry-manifest.tsv                     # container, blob, original path, time, identity, error
-    └── landscapes/                            # one folder per container, holding the full blob path
-        └── 2026/riverwalk/20261017/DNG/a.dng
+    └── grand-haven/                           # one folder per container, holding the full blob path
+        ├── 2026/20261017/DNG/a.dng
+        └── 2026/general/c.jpg                 # a loose file, already under general/
 ```
 Each run also writes `report.txt` (every failure and where the file is now) and azcopy's logs to `~/.photo-tools/upload-runs/<date-time>/` (change it with `PHOTO_UPLOAD_LOGS`).
 
@@ -263,7 +282,7 @@ Whoever signs in, you or a service principal, needs this Azure role on the stora
 `Owner` or `Contributor` on the subscription are **not** enough on their own, because they don't include data access. Assign the role (you need *Owner*, *User Access Administrator* or *Role Based Access Control Administrator* to do this):
 
 ```bash
-ACCOUNT_ID=$(az storage account show -n photostore -g photos-rg --query id -o tsv)
+ACCOUNT_ID=$(az storage account show -n rpsphotography001 -g rg-photography --query id -o tsv)
 az role assignment create --assignee "$(az ad signed-in-user show --query id -o tsv)" \
   --role "Storage Blob Data Contributor" --scope "$ACCOUNT_ID"
 ```
@@ -300,7 +319,7 @@ A service principal lets the upload run under its own identity instead of yours,
    export PHOTO_AZ_TENANT_ID=<tenant>
    export PHOTO_AZ_CERT_PATH=~/.photo-tools/photo-tools-uploader.pem   # if using a certificate
    ```
-   Then `upload_azure.sh -u landscapes=~/Export/landscapes` signs in as the service principal. Command-line options override these variables.
+   Then `upload_azure.sh -u grand-haven=~/Export/grand-haven` signs in as the service principal. Command-line options override these variables.
 5. **Renew before it expires** — secrets and certificates expire (one year by default). When sign-in fails because of that, the script says so. Renew with `az ad sp credential reset --id <appId> [--create-cert]`.
 
 **Every setting and where it comes from** (an option beats a `PHOTO_*` variable, which beats the standard `AZURE_*` variable):
