@@ -602,7 +602,8 @@ while [ $j -lt ${#J_C[@]} ]; do
             copy_args=(copy "$src/*" "$pass_url" --exclude-regex "$HIDDEN_RE")
         fi
         [ "$pass_n" -gt 0 ] || continue
-        copy_args+=(--put-md5 --log-level="$([ "$VERBOSE" -eq 1 ] && echo INFO || echo WARNING)" --output-type=json)
+        copy_args+=(--put-md5 --block-size-mb=40 --cap-mbps=0
+                    --log-level="$([ "$VERBOSE" -eq 1 ] && echo INFO || echo WARNING)" --output-type=json)
         if [ "$OVERWRITE" -eq 1 ]; then copy_args+=(--overwrite=ifSourceNewer); else copy_args+=(--overwrite=false); fi
         [ -z "$TIER" ] || copy_args+=(--block-blob-tier="$TIER")
 

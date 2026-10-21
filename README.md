@@ -177,6 +177,7 @@ Uploads local folders into Azure Blob Storage containers, one container per cate
    - Hidden files and folders (`.DS_Store`, `.incoming/`, …) are skipped.
    - Blobs that are already in the container are skipped, so re-running only sends what is new.
    - Each blob gets an MD5 hash.
+   - azcopy uploads in 40 MiB blocks (`--block-size-mb=40`) with no bandwidth cap (`--cap-mbps=0`).
 5. **Report and retry** — at the end, every file that could not be uploaded is listed with the reason. It is also moved to the retry folder, keeping its folder structure, and its original path is recorded in `retry-manifest.tsv`.
    - Run the same command with **`-R`** to upload only the retry folder.
    - Each retried file that succeeds is moved back to its original path.
