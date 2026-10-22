@@ -12,15 +12,18 @@ photo-tools/
 ├── install/
 │   ├── install.sh            # installs prerequisites, then copies every tool script into /usr/local/bin
 │   └── prereqs.sh            # checks for / installs exiftool and Adobe DNG Converter (via Homebrew)
-└── workflow/                 # post-shoot workflow: SD card import and file organization
-    ├── import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
-    └── rename_nef.sh         # rename NEFs/JPGs to capture time (used by import_photos.sh)
+├── workflow/                 # post-shoot workflow: SD card import and file organization
+│   ├── import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
+│   └── rename_nef.sh         # rename NEFs/JPGs to capture time (used by import_photos.sh)
+└── cloud/                    # cloud backup and sharing
+    └── upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
 ```
 
 | Directory   | Purpose                                                            |
 |-------------|--------------------------------------------------------------------|
 | `install/`  | Installing the tools on a Mac (not a tool itself).                 |
 | `workflow/` | Getting photos off the camera and into the archive after a shoot.  |
+| `cloud/`    | Copying photos to cloud storage.                                   |
 
 ### Adding new tools
 
@@ -160,6 +163,209 @@ If two shots share the exact same subsecond, a `_1`, `_2`, … suffix is added. 
 
 ---
 
+### `cloud/upload_azure.sh` — Upload photo folders to Azure Blob Storage
+
+Uploads local folders into Azure Blob Storage containers, one container per category (e.g. `charlevoix`, `grand-haven`), using `azcopy`. Uploads can take hours, so files that fail are moved to a retry folder, and a retry run only uploads those files.
+
+**Workflow:**
+1. **Sign in** — as you (your existing `az login`) or as a service principal (`-I sp`, see [Service principal setup](#service-principal-setup)).
+2. **Check** — before anything is uploaded, every container is checked: it must exist and the signed-in identity must have access. Problems stop the run with a message naming the missing role.
+3. **Authorize azcopy** — by default the script creates a short-lived **user delegation SAS** for each container. The SAS is signed with your Entra ID sign-in, never with storage account keys, so account keys can stay disabled. It allows only read/create/write/list, never delete, and is HTTPS-only and never printed or logged. With `-A oauth`, azcopy signs in itself instead and renews its own tokens. That suits very long uploads, which could outlast a SAS.
+4. **Upload** — every file under each folder goes to its container (see [Where files go in the container](#where-files-go-in-the-container)):
+   - Each first-level subfolder becomes a folder in the container, keeping everything below it.
+   - Files sitting directly in the folder go into a `general/` folder.
+   - Hidden files and folders (`.DS_Store`, `.incoming/`, …) are skipped.
+   - Blobs that are already in the container are skipped, so re-running only sends what is new.
+   - Each blob gets an MD5 hash.
+   - azcopy uploads in 40 MiB blocks (`--block-size-mb=40`) with no bandwidth cap (`--cap-mbps=0`).
+5. **Report and retry** — at the end, every file that could not be uploaded is listed with the reason. It is also moved to the retry folder, keeping its folder structure, and its original path is recorded in `retry-manifest.tsv`.
+   - Run the same command with **`-R`** to upload only the retry folder.
+   - Each retried file that succeeds is moved back to its original path.
+   - A file whose name is already taken in the container by a *different* file (different size) counts as a failure, and the existing blob is never replaced unless you use `-O`.
+
+**Usage** (installed in `/usr/local/bin`):
+```bash
+upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
+
+  -a ACCOUNT    storage account name, e.g. rpsphotography001 (default: $PHOTO_AZ_ACCOUNT)
+  -u C=DIR      upload folder DIR into container C (repeat for each category)
+  -m MAPFILE    read CONTAINER=DIR (or CONTAINER<TAB>DIR) lines from a file
+  -p PREFIX     optional extra folder in front of everything uploaded, e.g. 2026
+  -r RETRY      retry folder root (default: $PHOTO_UPLOAD_RETRY, else DIR/.upload-retry)
+  -R            retry mode: upload only what is in the retry folders
+  -I user|sp    who signs in: user = your az login, sp = a service principal (default: user)
+  -i APP_ID     service principal application (client) ID
+  -z TENANT     Entra tenant ID
+  -K PEM        service principal certificate (PEM with private key + certificate)
+  -A sas|oauth  azcopy uses a SAS this script creates, or signs in itself (default: sas)
+  -t HOURS      SAS lifetime, 1-167 (default 24)
+  -T TIER       blob tier: Hot, Cool, Cold or Archive (default: the account's)
+  -O            replace a blob when the local file is newer (default: never replace)
+  -n            dry run: sign in and check access, show what would be uploaded
+  -v            verbose: show settings, every az/azcopy command and full errors (for debugging)
+```
+
+Exit status: `0` everything uploaded (or already there), `2` some files failed and were moved to the retry folder, `1` error (nothing uploaded).
+
+**Choosing the storage account (`-a` / `PHOTO_AZ_ACCOUNT`):** this is the *name* of the Azure storage account that holds your category containers. It's the first part of the account's blob address `https://<name>.blob.core.windows.net`. Storage account names are 3–24 lowercase letters and digits and are unique across all of Azure. Use the bare name, not the URL, the resource group, or a container name. To find it:
+```bash
+# every storage account you can see, with its resource group
+az storage account list --query '[].{name:name, group:resourceGroup, location:primaryLocation}' -o table
+
+# check it's the right one: list its containers (these are your categories)
+az storage container list --account-name rpsphotography001 --auth-mode login --query '[].name' -o tsv
+```
+Or in the Azure portal: **Storage accounts** → the account → its name is the page title. Set it once in `~/.zshrc` so you don't need `-a` each time:
+```bash
+export PHOTO_AZ_ACCOUNT=rpsphotography001
+```
+
+**Choosing who signs in (`-I` / `PHOTO_AZ_AUTH`):** this picks the Azure identity the script signs in as, which is also the identity Azure checks for permission to upload. If it's not set, `user` is used.
+
+| Value  | Signs in as | Use it when | Setup needed |
+|--------|-------------|-------------|--------------|
+| `user` | **You**, reusing your existing `az login` (run `az login` once; it lasts for weeks). | You run uploads yourself from your own Mac. The simplest choice. | Give your account the *Storage Blob Data Contributor* role (see [Access requirements](#access-requirements-rbac)). |
+| `sp`   | A **service principal**: an app identity with its own certificate or client secret. It signs in separately, so your own `az login` is left alone. | Uploads run unattended (a scheduled job, another Mac), or you want an identity that can *only* upload photos, not use your full account. | Create the service principal and set `PHOTO_AZ_CLIENT_ID`, `PHOTO_AZ_TENANT_ID` and a certificate or secret (see [Service principal setup](#service-principal-setup)). |
+
+Being *Owner* of the subscription is not enough for either one: Owner manages the account but can't read or write blobs. The pre-upload check (and `-n`) reports this before anything is uploaded.
+
+**Where files go in the container:** inside each container, every first-level subfolder of the source folder keeps its name. Files directly in the source folder (not in a subfolder) go into a folder called `general`, which is created the first time and added to after that. For `-u grand-haven=~/Export/GrandHaven`:
+
+| Local file                                  | Blob in `grand-haven`        | With `-p 2026`                    |
+|---------------------------------------------|------------------------------|-----------------------------------|
+| `~/Export/GrandHaven/20261017/DNG/a.dng`    | `20261017/DNG/a.dng`         | `2026/20261017/DNG/a.dng`         |
+| `~/Export/GrandHaven/sunsets/b.jpg`         | `sunsets/b.jpg`              | `2026/sunsets/b.jpg`              |
+| `~/Export/GrandHaven/c.jpg`                 | `general/c.jpg`              | `2026/general/c.jpg`              |
+
+`-p` is optional: it adds the same extra folder (it can have several levels, e.g. `2026/fall`) in front of every blob. Without it, the subfolders and `general/` sit at the top of the container.
+
+- The dry run (`-n`) lists each file with the blob it will become.
+- If the source folder has a subfolder that is itself called `general`, its files go to `general/` too. A loose file with the same name as one in that subfolder would land on the same blob, so the script stops before uploading and lists those files.
+
+**Examples:**
+```bash
+# Preview: signs in, checks both containers, lists each file and the blob it becomes
+upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -n
+
+# Upload
+upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven
+
+# Same, but under a 2026/ folder in each container
+upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -p 2026
+
+# Some files failed: fix the cause, then upload only those
+upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -R
+
+# Categories kept in a file (one CONTAINER=DIR per line, # comments allowed)
+upload_azure.sh -a rpsphotography001 -m ~/photo-categories.txt
+```
+
+**Retry folder layout** (default: inside each source folder, so moving files there is instant and they are never uploaded by a normal run):
+```
+~/Export/grand-haven/
+├── 20261017/...                               # files that uploaded stay where they were
+└── .upload-retry/
+    ├── retry-manifest.tsv                     # container, blob, original path, time, identity, error
+    └── grand-haven/                           # one folder per container, holding the full blob path
+        ├── 2026/20261017/DNG/a.dng
+        └── 2026/general/c.jpg                 # a loose file, already under general/
+```
+Each run also writes `report.txt` (every failure and where the file is now) and azcopy's logs to `~/.photo-tools/upload-runs/<date-time>/` (change it with `PHOTO_UPLOAD_LOGS`).
+
+#### Access requirements (RBAC)
+
+Whoever signs in, you or a service principal, needs this Azure role on the storage account, or on each container you upload to:
+
+| Role                              | Why                                                                   |
+|-----------------------------------|-----------------------------------------------------------------------|
+| **Storage Blob Data Contributor** | Check the containers, create the user delegation SAS, upload blobs.   |
+
+`Owner` or `Contributor` on the subscription are **not** enough on their own, because they don't include data access. Assign the role (you need *Owner*, *User Access Administrator* or *Role Based Access Control Administrator* to do this):
+
+```bash
+ACCOUNT_ID=$(az storage account show -n rpsphotography001 -g rg-photography --query id -o tsv)
+az role assignment create --assignee "$(az ad signed-in-user show --query id -o tsv)" \
+  --role "Storage Blob Data Contributor" --scope "$ACCOUNT_ID"
+```
+
+- New role assignments can take up to 10 minutes to start working.
+- The containers must already exist; the script never creates them.
+- If the storage account has a firewall, your public IP must be allowed.
+- Storage account keys (shared key access) are never used and can stay disabled.
+
+#### Service principal setup
+
+A service principal lets the upload run under its own identity instead of yours, for example from a scheduled job or a dedicated Mac. You need:
+
+1. **Permission to create it** — creating an app registration in the tenant (the *Application Developer* role, or app registration left open to users), plus the right to assign roles on the storage account (see above).
+2. **The service principal, limited to the storage account** (or to one container, using the container's ID `$ACCOUNT_ID/blobServices/default/containers/<name>` as the scope; repeat `az role assignment create` for each container). A certificate is preferred to a client secret:
+   ```bash
+   az ad sp create-for-rbac --name photo-tools-uploader \
+     --role "Storage Blob Data Contributor" --scopes "$ACCOUNT_ID" \
+     --create-cert          # leave out for a client secret (add --years N to set its lifetime)
+   ```
+   Note the `appId` and `tenant` in the output. With `--create-cert`, the output also gives the path of a PEM file holding the private key and certificate. Don't grant *Contributor* or *Owner*.
+3. **Store the credential:**
+   - **Certificate (recommended):** move the PEM to `~/.photo-tools/` and run `chmod 600` on it. The script warns if other users can read it. It must be unencrypted (no passphrase).
+   - **Client secret:** keep it in the macOS Keychain, where `security` prompts for the secret so it never appears on screen or in shell history:
+     ```bash
+     security add-generic-password -s photo-tools-azure -a <appId> -w
+     ```
+     Or export `PHOTO_AZ_CLIENT_SECRET` (or `AZURE_CLIENT_SECRET`) only in the shell where you run the upload. Don't put a secret in `~/.zshrc`. There is deliberately no command-line option for the secret, because command lines show up in `ps` and shell history.
+4. **Settings in `~/.zshrc`** (none of these are secret):
+   ```bash
+   export PHOTO_AZ_ACCOUNT=rpsphotography001
+   export PHOTO_AZ_AUTH=sp
+   export PHOTO_AZ_CLIENT_ID=<appId>
+   export PHOTO_AZ_TENANT_ID=<tenant>
+   export PHOTO_AZ_CERT_PATH=~/.photo-tools/photo-tools-uploader.pem   # if using a certificate
+   ```
+   Then `upload_azure.sh -u grand-haven=~/Export/grand-haven` signs in as the service principal. Command-line options override these variables.
+5. **Renew before it expires** — secrets and certificates expire (one year by default). When sign-in fails because of that, the script says so. Renew with `az ad sp credential reset --id <appId> [--create-cert]`.
+
+**Every setting and where it comes from** (an option beats a `PHOTO_*` variable, which beats the standard `AZURE_*` variable):
+
+| Setting                | Option | Environment variables                                       | Default              |
+|------------------------|--------|-------------------------------------------------------------|----------------------|
+| Who signs in           | `-I`   | `PHOTO_AZ_AUTH`                                             | `user`               |
+| App (client) ID        | `-i`   | `PHOTO_AZ_CLIENT_ID`, `AZURE_CLIENT_ID`                     | —                    |
+| Tenant ID              | `-z`   | `PHOTO_AZ_TENANT_ID`, `AZURE_TENANT_ID`                     | —                    |
+| Certificate            | `-K`   | `PHOTO_AZ_CERT_PATH`, `AZURE_CLIENT_CERTIFICATE_PATH`       | —                    |
+| Client secret          | —      | `PHOTO_AZ_CLIENT_SECRET`, `AZURE_CLIENT_SECRET`, then Keychain | —                 |
+| Keychain item          | —      | `PHOTO_AZ_KEYCHAIN_SERVICE`                                 | `photo-tools-azure`  |
+| Storage account name   | `-a`   | `PHOTO_AZ_ACCOUNT`                                          | —                    |
+| azcopy authorization   | `-A`   | `PHOTO_AZ_TRANSFER`                                         | `sas`                |
+| Retry folder root      | `-r`   | `PHOTO_UPLOAD_RETRY`                                        | `DIR/.upload-retry`  |
+| Reports and logs       | —      | `PHOTO_UPLOAD_LOGS`                                         | `~/.photo-tools/upload-runs` |
+| Verbose output         | `-v`   | `PHOTO_UPLOAD_VERBOSE=1`                                    | off                  |
+
+If both a certificate and a secret are set, the certificate is used.
+
+**How the service principal is used:**
+- The script signs it in with a private, temporary Azure CLI profile (`AZURE_CONFIG_DIR`), deleted when the script ends. Your own `az login` and default subscription are left untouched.
+- With `-A oauth`, azcopy signs in as the service principal itself, using its `AZCOPY_SPA_*` variables. These are set only for the azcopy process.
+
+**Tips:**
+- Run with `-n` first. It signs in and checks every container, so a missing role or wrong ID shows up before a long upload starts.
+- **Debugging:** add `-v` (or set `PHOTO_UPLOAD_VERBOSE=1`) to see what the script is doing. Lines starting with `debug` go to stderr and show:
+  - every setting and where it came from (option, environment variable, or default), plus tool versions;
+  - each `az`/`azcopy` command as it runs, with its exit code and how long it took;
+  - the full error text from `az`, not just the first lines;
+  - azcopy's job ID and log file, and how many files ended in each transfer status.
+
+  azcopy also logs at INFO level instead of WARNING. Besides `report.txt` and azcopy's `logs/`, the run folder keeps:
+  - `debug.log`: the same debug lines;
+  - `outcome-N-<container>.tsv`: each file's size, outcome, azcopy status and HTTP code;
+  - `plans/`: azcopy's job plans, so `AZCOPY_JOB_PLAN_LOCATION=<run folder>/plans azcopy jobs show <job ID>` still works afterwards.
+
+  SAS signatures and client secrets are always shown as `REDACTED`/`<hidden>`. With `-n`, debug lines are only shown on screen, since a dry run writes no files.
+- If every file fails at once, the cause is usually the network, the account firewall, a missing role, or an expired SAS. The script says so and points at the azcopy log.
+- For uploads that may run longer than the SAS lifetime (`-t`, at most 167 hours), use `-A oauth`.
+- Ctrl-C stops the upload without moving anything to the retry folder. Re-run the same command; files that already made it are skipped.
+- A SAS is passed to azcopy on its command line, so other users on the same Mac could briefly see it with `ps`. It only works on one container, can't delete anything, and expires. A client secret given to `az login` is exposed the same way for a moment. A certificate, or `-A oauth`, avoids both.
+
+---
+
 ## Installation (macOS)
 
 ### Prerequisites
@@ -169,8 +375,11 @@ If two shots share the exact same subsecond, a `_1`, `_2`, … suffix is added. 
 | Homebrew            | installing the tools below         | — (install it yourself from https://brew.sh) |
 | exiftool            | `import_photos.sh`, `rename_nef.sh` | `brew install exiftool`                  |
 | Adobe DNG Converter | `import_photos.sh`                 | `brew install --cask adobe-dng-converter` (macOS 14+) |
+| Azure CLI           | `upload_azure.sh` (optional)       | — reported only; `brew install azure-cli` |
+| azcopy              | `upload_azure.sh` (optional)       | — reported only; `brew install azcopy`   |
+| jq                  | `upload_azure.sh` (optional)       | — reported only; included with macOS 15+, else `brew install jq` |
 
-`install/install.sh` checks these first, so you normally don't need to do anything separately. To check or install them on their own:
+`install/install.sh` checks these first, so you normally don't need to do anything separately. The Azure tools are optional: they're only needed for `upload_azure.sh`, so a missing one is reported with its install command but never stops the install. To check or install them on their own:
 
 ```bash
 install/prereqs.sh -n      # check only: report what's missing
@@ -193,7 +402,7 @@ install/install.sh         # install
 
 The installer:
 - runs `install/prereqs.sh` to install any missing prerequisites, and stops if one can't be installed;
-- copies every tool script (currently `import_photos.sh` and `rename_nef.sh`) into `/usr/local/bin`, creating it if needed;
+- copies every tool script (currently `import_photos.sh`, `rename_nef.sh` and `upload_azure.sh`) into `/usr/local/bin`, creating it if needed;
 - sets each script to mode `755` (`rwxr-xr-x`): every user can run it, only the owner can change it;
 - uses `sudo` only if `/usr/local/bin` isn't writable by you, and asks for your password in that case.
 

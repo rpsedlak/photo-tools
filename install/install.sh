@@ -4,9 +4,12 @@
 #              into /usr/local/bin.
 #
 # First runs install/prereqs.sh, which installs anything missing (exiftool,
-# Adobe DNG Converter) with Homebrew; stops if that fails.
+# Adobe DNG Converter) with Homebrew; stops if that fails. The Azure tools
+# used by upload_azure.sh (azure-cli, azcopy, jq) are optional: missing ones
+# are reported but never stop the install.
 #
-# Then installs every *.sh in the repository's tool directories (workflow/, ...)
+# Then installs every *.sh in the repository's tool directories (workflow/,
+# cloud/, ...)
 # with mode 755: everyone can read and run them, only the owner can modify
 # them. sudo is used only when the destination isn't writable by you.
 #
