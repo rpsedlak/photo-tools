@@ -15,12 +15,12 @@
 #            Hidden files and folders are skipped. Blobs that are already in
 #            the container are skipped, so a re-run only sends what is new.
 #            Each blob gets an MD5 hash.
-#   RETRY    Files that could not be uploaded are listed at the end and moved
-#            to a retry folder (default DIR/.upload-retry/<container>/),
+#   RETRY    Files that could not be uploaded are listed at the end and linked
+#            from a retry folder (default DIR/.upload-retry/<container>/),
 #            keeping their folder structure; retry-manifest.tsv there records
 #            where each one came from and why it failed. Re-run the same
-#            command with -R to upload only those files: each one that makes
-#            it is moved back to where it came from.
+#            command with -R to upload only those files: each successful retry
+#            removes its link; the original stays where it was.
 #
 # Usage:
 #   upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
@@ -457,7 +457,11 @@ if [ ${#J_C[@]} -eq 0 ]; then log "Nothing to do."; exit 0; fi
 # hidden files skipped. Each first-level subfolder keeps its name in the
 # container; files directly inside the folder go into GENERAL_DIR.
 list_files() {
-    (cd "$1" && find . -type f ! -path '*/.*' -exec stat -f '%N%t%z' {} + 2>/dev/null) |
+    if [ "$RETRY_MODE" -eq 1 ]; then
+        (cd "$1" && find . \( -type f -o \( -type l -exec test -f {} \; \) \) ! -path '*/.*' -exec stat -L -f '%N%t%z' {} + 2>/dev/null)
+    else
+        (cd "$1" && find . -type f ! -path '*/.*' -exec stat -f '%N%t%z' {} + 2>/dev/null)
+    fi |
         sed 's|^\./||' | LC_ALL=C sort |
         awk -F'\t' -v OFS='\t' -v bp="${2:+$2/}" -v g="$GENERAL_DIR" '
             NF == 2 { print $1, $2, bp (index($1, "/") ? $1 : g "/" $1) }'
@@ -604,6 +608,7 @@ while [ $j -lt ${#J_C[@]} ]; do
         [ "$pass_n" -gt 0 ] || continue
         copy_args+=(--put-md5 --block-size-mb=40 --cap-mbps=0
                     --log-level="$([ "$VERBOSE" -eq 1 ] && echo INFO || echo WARNING)" --output-type=json)
+                [ "$RETRY_MODE" -eq 0 ] || copy_args+=(--follow-symlinks)
         if [ "$OVERWRITE" -eq 1 ]; then copy_args+=(--overwrite=ifSourceNewer); else copy_args+=(--overwrite=false); fi
         [ -z "$TIER" ] || copy_args+=(--block-blob-tier="$TIER")
 
@@ -689,10 +694,10 @@ while [ $j -lt ${#J_C[@]} ]; do
                 where="$src/$rel"
             else
                 orig="$src/$rel"; where="$r/$c/$blob"
-                if [ -e "$where" ]; then
-                    reason="$reason; NOT moved: $where already exists"; where="$orig"
-                elif ! { mkdir -p "$(dirname "$where")" && mv -n "$orig" "$where" && [ ! -e "$orig" ]; }; then
-                    reason="$reason; NOT moved: could not move to $where"; where="$orig"
+                if [ -e "$where" ] || [ -L "$where" ]; then
+                    reason="$reason; NOT linked: $where already exists"; where="$orig"
+                elif ! { [ -f "$orig" ] && mkdir -p "$(dirname "$where")" && ln -s "$orig" "$where"; }; then
+                    reason="$reason; NOT linked: could not create link at $where"; where="$orig"
                 fi
             fi
             printf '%s\t%s\n' "$c" "$blob" >> "$WORK/manifest.drop"
@@ -702,9 +707,22 @@ while [ $j -lt ${#J_C[@]} ]; do
         else
             if [ "$o" = "ok" ]; then ok=$((ok + 1)); else skip=$((skip + 1)); fi
             [ "$RETRY_MODE" -eq 1 ] || continue
-            # A retried file made it: put it back where it came from.
-            printf '%s\t%s\n' "$c" "$blob" >> "$WORK/manifest.drop"
+            # A retried link points to the original, which never left its path.
             orig=$(awk -F'\t' -v b="$rel" '$1 == b { print $2; exit }' "$WORK/orig")
+            if [ -L "$src/$rel" ]; then
+                link_target=$(readlink "$src/$rel")
+                if [ "$link_target" = "$orig" ] && rm -f "$src/$rel"; then
+                    printf '%s\t%s\n' "$c" "$blob" >> "$WORK/manifest.drop"
+                    continue
+                fi
+                note="uploaded, but retry link was not removed; left at $src/$rel"
+                kept_back=$((kept_back + 1))
+                echo "NOTE  $c/$blob: $note" >&2
+                printf 'NOTE  %s  %s: %s\n' "$c" "$blob" "$note" >> "$REPORT"
+                continue
+            fi
+            # Legacy retry files were moved, so restore them to their source path.
+            printf '%s\t%s\n' "$c" "$blob" >> "$WORK/manifest.drop"
             if [ -z "$orig" ]; then
                 note="uploaded, but no original path is recorded; left at $src/$rel"
             elif [ -e "$orig" ]; then
