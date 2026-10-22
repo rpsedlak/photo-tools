@@ -178,9 +178,9 @@ Uploads local folders into Azure Blob Storage containers, one container per cate
    - Blobs that are already in the container are skipped, so re-running only sends what is new.
    - Each blob gets an MD5 hash.
    - azcopy uploads in 40 MiB blocks (`--block-size-mb=40`) with no bandwidth cap (`--cap-mbps=0`).
-5. **Report and retry** — at the end, every file that could not be uploaded is listed with the reason. It is also moved to the retry folder, keeping its folder structure, and its original path is recorded in `retry-manifest.tsv`.
+5. **Report and retry** — at the end, every file that could not be uploaded is listed with the reason. A symbolic link to it is created in the retry folder, keeping its folder structure, and its original path is recorded in `retry-manifest.tsv`. The original stays in place.
    - Run the same command with **`-R`** to upload only the retry folder.
-   - Each retried file that succeeds is moved back to its original path.
+  - Each retried file that succeeds has its retry link removed.
    - A file whose name is already taken in the container by a *different* file (different size) counts as a failure, and the existing blob is never replaced unless you use `-O`.
 
 **Usage** (installed in `/usr/local/bin`):
@@ -260,15 +260,15 @@ upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-
 upload_azure.sh -a rpsphotography001 -m ~/photo-categories.txt
 ```
 
-**Retry folder layout** (default: inside each source folder, so moving files there is instant and they are never uploaded by a normal run):
+**Retry folder layout** (default: inside each source folder; links are hidden from normal uploads):
 ```
 ~/Export/grand-haven/
 ├── 20261017/...                               # files that uploaded stay where they were
 └── .upload-retry/
     ├── retry-manifest.tsv                     # container, blob, original path, time, identity, error
-    └── grand-haven/                           # one folder per container, holding the full blob path
-        ├── 2026/20261017/DNG/a.dng
-        └── 2026/general/c.jpg                 # a loose file, already under general/
+    └── grand-haven/                           # links, one per failed blob path
+        ├── 2026/20261017/DNG/a.dng -> ~/Export/grand-haven/20261017/DNG/a.dng
+        └── 2026/general/c.jpg -> ~/Export/grand-haven/c.jpg
 ```
 Each run also writes `report.txt` (every failure and where the file is now) and azcopy's logs to `~/.photo-tools/upload-runs/<date-time>/` (change it with `PHOTO_UPLOAD_LOGS`).
 
