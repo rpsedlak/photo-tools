@@ -11,12 +11,14 @@ photo-tools/
 ├── README.md                 # this file
 ├── install/
 │   ├── install.sh            # installs prerequisites, then copies every tool script into /usr/local/bin
-│   └── prereqs.sh            # checks for / installs required tools (via Homebrew)
 ├── workflow/                 # post-shoot workflow: SD card import and file organization
 │   ├── import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
 │   └── rename_nef.sh         # rename NEFs/JPGs to capture time (used by import_photos.sh)
-└── cloud/                    # cloud backup and sharing
-    └── upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
+├── cloud/                    # cloud backup and sharing
+│   └── upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
+└── tools/                    # dependency management
+  ├── prereqs.sh            # checks for / installs required tools (via Homebrew)
+  └── update.sh             # updates Homebrew-managed dependencies
 ```
 
 | Directory   | Purpose                                                            |
@@ -24,13 +26,14 @@ photo-tools/
 | `install/`  | Installing the tools on a Mac (not a tool itself).                 |
 | `workflow/` | Getting photos off the camera and into the archive after a shoot.  |
 | `cloud/`    | Copying photos to cloud storage.                                   |
+| `tools/`    | Checking, installing, and updating dependencies.                   |
 
 ### Adding new tools
 
 - Put each tool in a top-level directory named for its purpose (e.g. `workflow/`). Create a new directory when a tool doesn't fit an existing one.
 - `install/install.sh` picks up every `*.sh` one level down (`<tool-dir>/<name>.sh`) automatically. Script names must be unique across all tool directories, since they're all installed into one folder.
 - Keep scripts that call each other in the same directory — `import_photos.sh` finds `rename_nef.sh` by looking next to itself.
-- If a new tool needs another program, add a check for it to `install/prereqs.sh`.
+- If a new tool needs another program, add a check for it to `tools/prereqs.sh`.
 - Add the tool to the tree and table above, and give it a section under [Tools](#tools).
 
 ---
@@ -370,7 +373,7 @@ If both a certificate and a secret are set, the certificate is used.
 
 ### Prerequisites
 
-| Tool                | Needed by                          | Installed by `prereqs.sh` with           |
+| Tool                | Needed by                          | Installed by `tools/prereqs.sh` with     |
 |---------------------|------------------------------------|------------------------------------------|
 | Homebrew            | installing the tools below         | — (install it yourself from https://brew.sh) |
 | exiftool            | `import_photos.sh`, `rename_nef.sh` | `brew install exiftool`                  |
@@ -382,13 +385,15 @@ If both a certificate and a secret are set, the certificate is used.
 `install/install.sh` requires `cloud/upload_azure.sh`, checks and installs missing prerequisites first, then copies the tool scripts. Azure CLI, azcopy, and jq are required to run `upload_azure.sh`. To check or install prerequisites on their own:
 
 ```bash
-install/prereqs.sh -n      # check only: report what's missing
-install/prereqs.sh         # install anything missing
+tools/prereqs.sh -n        # check only: report what's missing
+tools/prereqs.sh           # install anything missing
+tools/update.sh             # install missing prerequisites and update Homebrew-managed dependencies
 ```
 
+- `tools/update.sh` upgrades only dependencies managed by Homebrew; macOS-provided `jq` and manually installed DNG Converter copies are left unchanged. After installation, run `update.sh` from your `PATH`.
 - Adobe's DNG Converter installer asks for your password.
 - If exiftool is installed but not on your `PATH`, the script says so and shows the line to add to `~/.zprofile`.
-- If DNG Converter lives somewhere other than `/Applications`, set `DNG_CONVERTER` to its path; both `prereqs.sh` and `import_photos.sh` use it.
+- If DNG Converter lives somewhere other than `/Applications`, set `DNG_CONVERTER` to its path; both `tools/prereqs.sh` and `import_photos.sh` use it.
 - Without DNG Converter, `import_photos.sh -k` still works (it copies and renames but makes no DNGs).
 
 ### Install to `/usr/local/bin`
@@ -401,8 +406,8 @@ install/install.sh         # install
 ```
 
 The installer:
-- runs `install/prereqs.sh` to install any missing prerequisites, and stops if one can't be installed;
-- copies every tool script (currently `import_photos.sh`, `rename_nef.sh` and `upload_azure.sh`) into `/usr/local/bin`, creating it if needed;
+- runs `tools/prereqs.sh` to install any missing prerequisites, and stops if one can't be installed;
+- copies every tool script, including `prereqs.sh` and `update.sh`, into `/usr/local/bin`, creating it if needed;
 - sets each script to mode `755` (`rwxr-xr-x`): every user can run it, only the owner can change it;
 - uses `sudo` only if `/usr/local/bin` isn't writable by you, and asks for your password in that case.
 
