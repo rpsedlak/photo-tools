@@ -4,9 +4,8 @@
 #              into /usr/local/bin.
 #
 # First runs install/prereqs.sh, which installs anything missing (exiftool,
-# Adobe DNG Converter) with Homebrew; stops if that fails. The Azure tools
-# used by upload_azure.sh (azure-cli, azcopy, jq) are optional: missing ones
-# are reported but never stop the install.
+# Adobe DNG Converter, Azure CLI, azcopy and jq) with Homebrew; stops if that
+# fails.
 #
 # Then installs every *.sh in the repository's tool directories (workflow/,
 # cloud/, ...)
@@ -43,6 +42,7 @@ shift $((OPTIND - 1))
 [ -n "$DEST" ] || die "destination is empty."
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
+[ -f "$REPO/cloud/upload_azure.sh" ] || die "required script cloud/upload_azure.sh not found."
 
 # Tool scripts live one level down: <repo>/<tool-dir>/<script>.sh
 SCRIPTS=()
