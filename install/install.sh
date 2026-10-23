@@ -3,13 +3,12 @@
 # install.sh — install the prerequisites, then copy the photo-tools scripts
 #              into /usr/local/bin.
 #
-# First runs install/prereqs.sh, which installs anything missing (exiftool,
+# First runs tools/prereqs.sh, which installs anything missing (exiftool,
 # Adobe DNG Converter, Azure CLI, azcopy and jq) with Homebrew; stops if that
 # fails.
 #
 # Then installs every *.sh in the repository's tool directories (workflow/,
-# cloud/, ...)
-# with mode 755: everyone can read and run them, only the owner can modify
+# cloud/, tools/, ...) with mode 755: everyone can read and run them, only the owner can modify
 # them. sudo is used only when the destination isn't writable by you.
 #
 # Usage:
@@ -52,16 +51,16 @@ done < <(find "$REPO" -mindepth 2 -maxdepth 2 -type f -name '*.sh' \
               ! -path "$REPO/install/*" ! -path "$REPO/.*" | sort)
 [ ${#SCRIPTS[@]} -gt 0 ] || die "no scripts found in $REPO."
 
-# Everything lands in one directory, so names must be unique across tool dirs.
+# Everything lands in one directory, so names must be unique.
 dupes=$(for f in "${SCRIPTS[@]}"; do basename "$f"; done | sort | uniq -d)
 [ -z "$dupes" ] || die "these names exist in more than one tool directory and would overwrite each other:
 $dupes"
 
 echo "Checking prerequisites..."
 if [ "$DRY_RUN" -eq 1 ]; then
-    bash "$REPO/install/prereqs.sh" -n
+    bash "$REPO/tools/prereqs.sh" -n
 else
-    bash "$REPO/install/prereqs.sh" || die "prerequisites are not ready (see above). Fix them and re-run."
+    bash "$REPO/tools/prereqs.sh" || die "prerequisites are not ready (see above). Fix them and re-run."
 fi
 echo ""
 

@@ -13,7 +13,7 @@
 # The DNG Converter cask runs Adobe's installer, which asks for your password.
 #
 # Usage:
-#   install/prereqs.sh [-n]
+#   tools/prereqs.sh [-n]
 #     -n   check only: report what's missing, install nothing
 #
 # Exit status: 0 when everything is ready, 1 otherwise.
@@ -85,7 +85,7 @@ if ! check_exiftool; then
         # Installed, but the scripts won't find it.
         missing "exiftool is installed at $("$BREW" --prefix)/bin/exiftool but is not on your PATH."
         echo "         Add Homebrew to your PATH, e.g. in ~/.zprofile:"
-        echo "             eval \"\$($BREW shellenv)\""
+        printf "             eval \"\$(%s shellenv)\"\n" "$BREW"
         problems=$((problems + 1))
     else
         missing "exiftool"
