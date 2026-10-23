@@ -11,7 +11,7 @@ photo-tools/
 ├── README.md                 # this file
 ├── install/
 │   ├── install.sh            # installs prerequisites, then copies every tool script into /usr/local/bin
-│   └── prereqs.sh            # checks for / installs exiftool and Adobe DNG Converter (via Homebrew)
+│   └── prereqs.sh            # checks for / installs required tools (via Homebrew)
 ├── workflow/                 # post-shoot workflow: SD card import and file organization
 │   ├── import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
 │   └── rename_nef.sh         # rename NEFs/JPGs to capture time (used by import_photos.sh)
@@ -375,11 +375,11 @@ If both a certificate and a secret are set, the certificate is used.
 | Homebrew            | installing the tools below         | — (install it yourself from https://brew.sh) |
 | exiftool            | `import_photos.sh`, `rename_nef.sh` | `brew install exiftool`                  |
 | Adobe DNG Converter | `import_photos.sh`                 | `brew install --cask adobe-dng-converter` (macOS 14+) |
-| Azure CLI           | `upload_azure.sh` (optional)       | — reported only; `brew install azure-cli` |
-| azcopy              | `upload_azure.sh` (optional)       | — reported only; `brew install azcopy`   |
-| jq                  | `upload_azure.sh` (optional)       | — reported only; included with macOS 15+, else `brew install jq` |
+| Azure CLI           | `upload_azure.sh`                  | `brew install azure-cli`                 |
+| azcopy              | `upload_azure.sh`                  | `brew install azcopy`                    |
+| jq                  | `upload_azure.sh`                  | included with macOS 15+, else `brew install jq` |
 
-`install/install.sh` checks these first, so you normally don't need to do anything separately. The Azure tools are optional: they're only needed for `upload_azure.sh`, so a missing one is reported with its install command but never stops the install. To check or install them on their own:
+`install/install.sh` requires `cloud/upload_azure.sh`, checks and installs missing prerequisites first, then copies the tool scripts. Azure CLI, azcopy, and jq are required to run `upload_azure.sh`. To check or install prerequisites on their own:
 
 ```bash
 install/prereqs.sh -n      # check only: report what's missing
