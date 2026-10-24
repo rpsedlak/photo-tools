@@ -49,7 +49,7 @@ photo-tools/
 2. **Rename** — Newly imported NEFs and JPGs are renamed to their capture time with `rename_nef.sh`, so they sort chronologically. Other types (MOV, …) keep their camera names.
 3. **Convert** — NEFs are converted with Adobe DNG Converter into the date folder's `DNG/`, named `<YYYYMMDD>-<event>-<nnnnn>.dng` in capture order.
 4. **Copyright** — If a copyright owner is set (see [Copyright](#copyright)), each new DNG is stamped `© <year> <owner>`, with the year taken from that photo's capture date. NEFs are never modified.
-5. **Compress** — Once a date's NEFs are all converted and filed, its `NEF/` folder is packed into `20261017/NEF.tar.xz` at xz's maximum compression (`-9e`, the smallest practical size, but slow), the archive is tested, and the `NEF/` folder is removed. NEFs are already compressed, so expect only a modest saving. To get a file back: `tar -xJf NEF.tar.xz`. Turn this off with `-z` or `PHOTO_COMPRESS_NEF=0`. It is skipped with `-k` (no DNGs were made) and while any NEF of that date is still waiting for a retry. If a later card adds NEFs to a date that already has a `NEF.tar.xz`, it is unpacked first (so duplicates are still caught) and then re-compressed.
+5. **Compress** — Once a date's NEFs are all converted and filed, its `NEF/` folder is zipped into `20261017/NEF.zip`, the zip is tested, and the `NEF/` folder is removed. Turn this off with `-z` or `PHOTO_COMPRESS_NEF=0`. It is skipped with `-k` (no DNGs were made) and while any NEF of that date is still waiting for a retry. If a later card adds NEFs to a date that already has a `NEF.zip`, the zip is unpacked first (so duplicates are still caught) and then re-zipped.
 6. **Deduplicate** — A manifest prevents re-importing the same file (e.g. re-inserting a card or importing the camera's backup slot), and byte-identical NEFs and JPGs are dropped before filing, so a photo is never stored twice or given two DNGs.
 
 **RAW+JPEG shots:** when the camera records both `DSC_0001.NEF` and `DSC_0001.JPG` for the same picture, both are copied, to `NEF/` and `JPG/`, and both are renamed to the same capture time (e.g. `NEF/2026101710000050.NEF` and `JPG/2026101710000050.JPG`), so the pair is easy to match up. Only NEFs are ever converted, so the DNG always comes from the NEF; the JPG is kept as-is, and JPEG-only shots get no DNG.
@@ -69,7 +69,7 @@ Options:
   -D YYYYMMDD  put everything in this one date folder instead of sorting by capture date
   -V           verify copies byte-for-byte (default: size check)
   -k           copy and rename only; skip DNG conversion (and NEF compression)
-  -z           do not compress the NEF/ folders afterwards (default: compress them)
+  -z           do not zip the NEF/ folders afterwards (default: zip them)
   -F           force: ignore the manifest and copy everything again
                (identical photos are still never converted twice)
   -x           eject the card when finished
@@ -107,7 +107,7 @@ import_photos.sh -e "Detroit Riverwalk" -d /Volumes/alternate-archive -n
 /path/to/destination/
 ├── .photo-import-manifest.tsv     # every file imported so far (prevents re-imports)
 ├── 20261017/
-│   ├── NEF.tar.xz                 # raw files, renamed to capture time, compressed after import
+│   ├── NEF.zip                    # raw files, renamed to capture time, zipped after import
 │   │                              # (a NEF/ folder instead with -z, -k, or PHOTO_COMPRESS_NEF=0)
 │   ├── JPG/                       # JPEGs, renamed the same way (a RAW+JPEG pair shares a name)
 │   │   └── 2026101720184537.JPG
@@ -386,7 +386,6 @@ If both a certificate and a secret are set, the certificate is used.
 |---------------------|------------------------------------|------------------------------------------|
 | Homebrew            | installing the tools below         | — (install it yourself from https://brew.sh) |
 | exiftool            | `import_photos.sh`, `rename_nef.sh` | `brew install exiftool`                  |
-| xz                  | `import_photos.sh` (NEF compression) | `brew install xz`                      |
 | Adobe DNG Converter | `import_photos.sh`                 | `brew install --cask adobe-dng-converter` (macOS 14+) |
 | Azure CLI           | `upload_azure.sh`                  | `brew install azure-cli`                 |
 | azcopy              | `upload_azure.sh`                  | `brew install azcopy`                    |

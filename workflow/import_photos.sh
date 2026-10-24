@@ -33,14 +33,12 @@
 #              from that photo's capture date. NEFs are never modified.
 #   5. COMPRESS
 #              Once a date's NEFs are all converted and filed, its NEF/ folder
-#              is packed into <destination>/20261017/NEF.tar.xz at xz's maximum
-#              compression (-9e, the smallest practical size; slow), the
-#              archive is tested, and the NEF/ folder is removed. Turn this
-#              off with -z or PHOTO_COMPRESS_NEF=0. Not done with -k (no DNGs
-#              were made), or while any NEF of that date still waits for a
-#              retry. If a later card adds NEFs to a date that already has
-#              NEF.tar.xz, it is unpacked first (so duplicates are still
-#              caught), then re-compressed.
+#              is zipped into <destination>/20261017/NEF.zip, the zip is tested,
+#              and the NEF/ folder is removed. Turn this off with -z or
+#              PHOTO_COMPRESS_NEF=0. Not done with -k (no DNGs were made), or
+#              while any NEF of that date still waits for a retry. If a later
+#              card adds NEFs to a date that already has NEF.zip, the zip is
+#              unpacked first (so duplicates are still caught), then re-zipped.
 #
 # Several cards for the same date and event
 #   Import them one after another. <nnnnn> continues from the highest number
@@ -69,8 +67,8 @@
 #                by each file's capture date
 #   -V           verify copies byte-for-byte (default: size check)
 #   -k           copy and rename only; skip DNG conversion (and NEF compression)
-#   -z           do not compress the NEF/ folders afterwards
-#                (default: compress them; PHOTO_COMPRESS_NEF=0 turns it off too)
+#   -z           do not zip the NEF/ folders afterwards
+#                (default: zip them; PHOTO_COMPRESS_NEF=0 turns it off too)
 #   -F           force: ignore the manifest and copy everything again
 #                (identical photos are still never converted twice)
 #   -x           eject the card when finished
@@ -88,8 +86,8 @@
 #                  medium preview). See Adobe's DNG Converter command-line notes.
 #
 # Requires: exiftool (brew install exiftool), Adobe DNG Converter (free,
-# from Adobe), rename_nef.sh next to this script, and xz (brew install xz)
-# unless NEF compression is off.
+# from Adobe), rename_nef.sh next to this script, and zip + unzip (stock on
+# macOS) unless NEF compression is off.
 # Works with the stock macOS bash 3.2.
 
 set -u
@@ -189,8 +187,8 @@ DEST_ROOT=$(cd "$DEST_ROOT" && pwd)     # the DNG converter needs absolute paths
 
 command -v exiftool >/dev/null 2>&1 || die "exiftool not found. Install it with: brew install exiftool"
 if [ "$COMPRESS_NEF" -eq 1 ] && [ "$SKIP_DNG" -eq 0 ] && [ "$DRY_RUN" -eq 0 ]; then
-    command -v xz >/dev/null 2>&1 || \
-        die "xz not found. Install it with: brew install xz (or use -z / PHOTO_COMPRESS_NEF=0 to skip NEF compression)."
+    command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1 || \
+        die "zip/unzip not found. Install them, or use -z (or PHOTO_COMPRESS_NEF=0) to skip NEF compression."
 fi
 [ -f "$RENAME_NEF" ] || die "rename_nef.sh not found next to this script ($SCRIPT_DIR)."
 if [ "$SKIP_DNG" -eq 0 ] && [ "$DRY_RUN" -eq 0 ] && [ ! -x "$DNG_CONVERTER" ]; then
@@ -335,7 +333,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     log ""
     log "Dry run complete — nothing was changed. NEFs and JPGs would then be renamed to capture time"
     [ "$SKIP_DNG" -eq 0 ] && log "and the NEFs converted to <date>/DNG/<YYYYMMDD>-$EVENT-<nnnnn>.dng"
-    [ "$SKIP_DNG" -eq 0 ] && [ "$COMPRESS_NEF" -eq 1 ] && log "and each date's NEF/ folder compressed to <date>/NEF.tar.xz"
+    [ "$SKIP_DNG" -eq 0 ] && [ "$COMPRESS_NEF" -eq 1 ] && log "and each date's NEF/ folder zipped to <date>/NEF.zip"
     exit 0
 fi
 
@@ -403,7 +401,7 @@ done
 
 # ---------- 3 + 4. per date folder: rename, drop duplicates, convert, file ---
 shopt -s nullglob
-converted=0; conv_failed=0; dupes=0; jpg_dupes=0; nef_packed=0
+converted=0; conv_failed=0; dupes=0; jpg_dupes=0; nef_zipped=0
 
 next_serial() {   # $1 = DNG dir, $2 = prefix; highest existing NNNNN, plus one
     local max=0 f n
@@ -447,38 +445,25 @@ run_rename() {    # $1 = .incoming dir, $2 = file count, then any rename_nef.sh 
     done
 }
 
-restore_nef_archive() { # $1 = YYYYMMDD; unpack an earlier NEF.tar.xz so new NEFs are checked against it
-    local day="$1" dir="$DEST_ROOT/$day" tmp="$DEST_ROOT/$day/.NEF.restore" f
-    [ "$COMPRESS_NEF" -eq 1 ] && [ -f "$dir/NEF.tar.xz" ] || return 0
-    log "$day: unpacking NEF.tar.xz..."
-    rm -rf "$tmp"; mkdir -p "$tmp" "$dir/NEF"
-    if xz -dc "$dir/NEF.tar.xz" | tar -xf - -C "$tmp" && [ -d "$tmp/NEF" ]; then
-        # Files already in NEF/ win; nothing is overwritten.
-        for f in "$tmp"/NEF/* "$tmp"/NEF/.[!.]*; do
-            [ -e "$f" ] && mv -n "$f" "$dir/NEF/"
-        done
-        rm -rf "$tmp"; return 0
-    fi
-    rm -rf "$tmp"
-    echo "FAIL  could not unpack $day/NEF.tar.xz" >&2
+restore_nef_zip() { # $1 = YYYYMMDD; unpack an earlier NEF.zip so new NEFs are checked against it
+    local day="$1" dir="$DEST_ROOT/$day"
+    [ "$COMPRESS_NEF" -eq 1 ] && [ -f "$dir/NEF.zip" ] || return 0
+    log "$day: unpacking NEF.zip..."
+    unzip -q -n "$dir/NEF.zip" -d "$dir" && return 0
+    echo "FAIL  could not unpack $day/NEF.zip" >&2
     return 1
 }
 
-compress_nef() {  # $1 = YYYYMMDD; pack NEF/ into NEF.tar.xz (xz -9e), test it, then remove NEF/
-    local day="$1" dir="$DEST_ROOT/$day" tmp=".NEF.tmp.tar.xz" ok=0 st
+compress_nef() {  # $1 = YYYYMMDD; zip NEF/ into NEF.zip, test it, then remove NEF/
+    local day="$1" dir="$DEST_ROOT/$day" tmp=".NEF.tmp.zip"
     [ -d "$dir/NEF" ] && [ ! -d "$dir/NEF/.incoming" ] || return 0   # nothing, or NEFs still waiting
     [ -n "$(find "$dir/NEF" -type f | head -n 1)" ] || return 0
-    log "$day: compressing NEF/ to NEF.tar.xz (maximum compression, this can take a while)..."
+    log "$day: compressing NEF/ to NEF.zip..."
     rm -f "$dir/$tmp"
-    # -T0: all cores, with the thread count cut back to fit in half the RAM.
-    (cd "$dir" || exit 1
-     tar -cf - NEF | xz -9e -T0 --memlimit-compress=50% -c > "$tmp"
-     st=("${PIPESTATUS[@]}"); [ "${st[0]}" -eq 0 ] && [ "${st[1]}" -eq 0 ]) && \
-    { xz -dc "$dir/$tmp" 2>/dev/null | tar -tf - >/dev/null 2>&1
-      st=("${PIPESTATUS[@]}"); [ "${st[0]}" -eq 0 ] && [ "${st[1]}" -eq 0 ]; } && ok=1
-    if [ "$ok" -eq 1 ] && mv -f "$dir/$tmp" "$dir/NEF.tar.xz"; then
+    if (cd "$dir" && zip -r -q "$tmp" NEF) && unzip -tq "$dir/$tmp" >/dev/null 2>&1 \
+       && mv -f "$dir/$tmp" "$dir/NEF.zip"; then
         rm -rf "$dir/NEF"
-        nef_packed=$((nef_packed + 1))
+        nef_zipped=$((nef_zipped + 1))
     else
         rm -f "$dir/$tmp"
         echo "WARN  could not compress $day/NEF (left as is)" >&2
@@ -516,7 +501,7 @@ process_date() {  # $1 = YYYYMMDD
     nefs=( "$inc"/*.[Nn][Ee][Ff] )
     [ ${#nefs[@]} -gt 0 ] || { rm -f "$inc/.event"; rmdir "$inc" 2>/dev/null; return 0; }
 
-    restore_nef_archive "$day" || { failed=$((failed + 1)); return 0; }
+    restore_nef_zip "$day" || { failed=$((failed + 1)); return 0; }
 
     ev="$EVENT"
     [ -s "$inc/.event" ] && ev=$(head -n 1 "$inc/.event")
@@ -633,7 +618,7 @@ for day in $DATES; do
 done
 log ""
 [ "$SKIP_DNG" -eq 0 ] && log "Converted $converted NEF(s) to DNG, $conv_failed failed."
-[ "$nef_packed" -gt 0 ] && log "Compressed $nef_packed NEF folder(s) to NEF.tar.xz."
+[ "$nef_zipped" -gt 0 ] && log "Compressed $nef_zipped NEF folder(s) to NEF.zip."
 [ "$dupes" -gt 0 ] && log "Dropped $dupes duplicate NEF(s)."
 [ "$jpg_dupes" -gt 0 ] && log "Dropped $jpg_dupes duplicate JPG(s)."
 
