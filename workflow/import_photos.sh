@@ -31,6 +31,14 @@
 #              gets "© <year> <owner>" as its copyright and <owner> as its
 #              creator (EXIF, XMP, and IPTC if present), with <year> taken
 #              from that photo's capture date. NEFs are never modified.
+#   5. COMPRESS
+#              Once a date's NEFs are all converted and filed, its NEF/ folder
+#              is zipped into <destination>/20261017/NEF.zip, the zip is tested,
+#              and the NEF/ folder is removed. Turn this off with -z or
+#              PHOTO_COMPRESS_NEF=0. Not done with -k (no DNGs were made), or
+#              while any NEF of that date still waits for a retry. If a later
+#              card adds NEFs to a date that already has NEF.zip, the zip is
+#              unpacked first (so duplicates are still caught), then re-zipped.
 #
 # Several cards for the same date and event
 #   Import them one after another. <nnnnn> continues from the highest number
@@ -58,7 +66,9 @@
 #   -D YYYYMMDD  put everything in this one date folder instead of sorting
 #                by each file's capture date
 #   -V           verify copies byte-for-byte (default: size check)
-#   -k           copy and rename only; skip DNG conversion
+#   -k           copy and rename only; skip DNG conversion (and NEF compression)
+#   -z           do not zip the NEF/ folders afterwards
+#                (default: zip them; PHOTO_COMPRESS_NEF=0 turns it off too)
 #   -F           force: ignore the manifest and copy everything again
 #                (identical photos are still never converted twice)
 #   -x           eject the card when finished
@@ -68,13 +78,16 @@
 #   PHOTO_IMPORT_DEST  destination root (same as -d; -d overrides it)
 #   PHOTO_COPYRIGHT_OWNER  default for -c; set it once in ~/.zshrc, e.g.
 #                  export PHOTO_COPYRIGHT_OWNER="Richard Sedlak"
+#   PHOTO_COMPRESS_NEF  set to 0 (or no/false/off) to stop compressing NEF/
+#                  folders after import (same as -z); default is to compress
 #   DNG_CONVERTER  path to the converter binary
 #                  (default: /Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter)
 #   DNG_OPTS       converter options (default: "-c -p1" = lossless compressed,
 #                  medium preview). See Adobe's DNG Converter command-line notes.
 #
 # Requires: exiftool (brew install exiftool), Adobe DNG Converter (free,
-# from Adobe), rename_nef.sh next to this script.
+# from Adobe), rename_nef.sh next to this script, and zip + unzip (stock on
+# macOS) unless NEF compression is off.
 # Works with the stock macOS bash 3.2.
 
 set -u
@@ -86,6 +99,10 @@ DNG_CONVERTER="${DNG_CONVERTER:-/Applications/Adobe DNG Converter.app/Contents/M
 DNG_OPTS="${DNG_OPTS:--c -p1}"
 DNG_BATCH=100                   # NEFs per converter launch
 COPYRIGHT_OWNER="${PHOTO_COPYRIGHT_OWNER:-}"
+COMPRESS_NEF=1
+case "$(printf '%s' "${PHOTO_COMPRESS_NEF:-1}" | tr '[:upper:]' '[:lower:]')" in
+    0|no|false|off|n) COMPRESS_NEF=0 ;;
+esac
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 RENAME_NEF="$SCRIPT_DIR/rename_nef.sh"
@@ -97,7 +114,7 @@ usage() { sed -n '/^# Usage:/,/^# Environment/p' "$0" | sed -e 's/^# \{0,1\}//' 
 die()   { echo "Error: $*" >&2; exit 1; }
 log()   { echo "$*"; }
 
-while getopts ":e:c:s:d:D:VkFxnh" opt; do
+while getopts ":e:c:s:d:D:VkzFxnh" opt; do
     case "$opt" in
         e) EVENT_RAW="$OPTARG" ;;
         c) COPYRIGHT_OWNER="$OPTARG" ;;
@@ -106,6 +123,7 @@ while getopts ":e:c:s:d:D:VkFxnh" opt; do
         D) FORCE_DATE="$OPTARG" ;;
         V) VERIFY_BYTES=1 ;;
         k) SKIP_DNG=1 ;;
+        z) COMPRESS_NEF=0 ;;
         F) FORCE=1 ;;
         x) EJECT=1 ;;
         n) DRY_RUN=1 ;;
@@ -168,6 +186,10 @@ DEST_ROOT=$(cd "$DEST_ROOT" && pwd)     # the DNG converter needs absolute paths
 [ -w "$DEST_ROOT" ] || [ "$DRY_RUN" -eq 1 ] || die "destination '$DEST_ROOT' is not writable."
 
 command -v exiftool >/dev/null 2>&1 || die "exiftool not found. Install it with: brew install exiftool"
+if [ "$COMPRESS_NEF" -eq 1 ] && [ "$SKIP_DNG" -eq 0 ] && [ "$DRY_RUN" -eq 0 ]; then
+    command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1 || \
+        die "zip/unzip not found. Install them, or use -z (or PHOTO_COMPRESS_NEF=0) to skip NEF compression."
+fi
 [ -f "$RENAME_NEF" ] || die "rename_nef.sh not found next to this script ($SCRIPT_DIR)."
 if [ "$SKIP_DNG" -eq 0 ] && [ "$DRY_RUN" -eq 0 ] && [ ! -x "$DNG_CONVERTER" ]; then
     die "Adobe DNG Converter not found at:
@@ -294,7 +316,7 @@ fi
 
 # Free-space check: the copies, plus about as much again for the DNGs, plus 1%.
 avail_kb=$(df -Pk "$DEST_ROOT" | awk 'NR==2 {print $4}')
-need_bytes=$(( total_bytes + (SKIP_DNG ? 0 : nef_bytes) ))
+need_bytes=$(( total_bytes + (SKIP_DNG ? 0 : nef_bytes) + (SKIP_DNG || ! COMPRESS_NEF ? 0 : nef_bytes) ))
 need_kb=$(( need_bytes / 1024 + need_bytes / 102400 ))
 [ "$need_kb" -le "$avail_kb" ] || \
     die "not enough space on $DEST_ROOT: need $((need_kb / 1024)) MB, have $((avail_kb / 1024)) MB."
@@ -311,6 +333,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     log ""
     log "Dry run complete — nothing was changed. NEFs and JPGs would then be renamed to capture time"
     [ "$SKIP_DNG" -eq 0 ] && log "and the NEFs converted to <date>/DNG/<YYYYMMDD>-$EVENT-<nnnnn>.dng"
+    [ "$SKIP_DNG" -eq 0 ] && [ "$COMPRESS_NEF" -eq 1 ] && log "and each date's NEF/ folder zipped to <date>/NEF.zip"
     exit 0
 fi
 
@@ -378,7 +401,7 @@ done
 
 # ---------- 3 + 4. per date folder: rename, drop duplicates, convert, file ---
 shopt -s nullglob
-converted=0; conv_failed=0; dupes=0; jpg_dupes=0
+converted=0; conv_failed=0; dupes=0; jpg_dupes=0; nef_zipped=0
 
 next_serial() {   # $1 = DNG dir, $2 = prefix; highest existing NNNNN, plus one
     local max=0 f n
@@ -422,6 +445,32 @@ run_rename() {    # $1 = .incoming dir, $2 = file count, then any rename_nef.sh 
     done
 }
 
+restore_nef_zip() { # $1 = YYYYMMDD; unpack an earlier NEF.zip so new NEFs are checked against it
+    local day="$1" dir="$DEST_ROOT/$day"
+    [ "$COMPRESS_NEF" -eq 1 ] && [ -f "$dir/NEF.zip" ] || return 0
+    log "$day: unpacking NEF.zip..."
+    unzip -q -n "$dir/NEF.zip" -d "$dir" && return 0
+    echo "FAIL  could not unpack $day/NEF.zip" >&2
+    return 1
+}
+
+compress_nef() {  # $1 = YYYYMMDD; zip NEF/ into NEF.zip, test it, then remove NEF/
+    local day="$1" dir="$DEST_ROOT/$day" tmp=".NEF.tmp.zip"
+    [ -d "$dir/NEF" ] && [ ! -d "$dir/NEF/.incoming" ] || return 0   # nothing, or NEFs still waiting
+    [ -n "$(find "$dir/NEF" -type f | head -n 1)" ] || return 0
+    log "$day: compressing NEF/ to NEF.zip..."
+    rm -f "$dir/$tmp"
+    if (cd "$dir" && zip -r -q "$tmp" NEF) && unzip -tq "$dir/$tmp" >/dev/null 2>&1 \
+       && mv -f "$dir/$tmp" "$dir/NEF.zip"; then
+        rm -rf "$dir/NEF"
+        nef_zipped=$((nef_zipped + 1))
+    else
+        rm -f "$dir/$tmp"
+        echo "WARN  could not compress $day/NEF (left as is)" >&2
+    fi
+    return 0
+}
+
 process_jpgs() {  # $1 = YYYYMMDD; rename new JPGs to capture time and file them in JPG/
     local day="$1" jd inc jpgs f
     jd="$DEST_ROOT/$day/JPG"; inc="$jd/.incoming"
@@ -451,6 +500,8 @@ process_date() {  # $1 = YYYYMMDD
     dd="$DEST_ROOT/$day/DNG"; din="$dd/.incoming"
     nefs=( "$inc"/*.[Nn][Ee][Ff] )
     [ ${#nefs[@]} -gt 0 ] || { rm -f "$inc/.event"; rmdir "$inc" 2>/dev/null; return 0; }
+
+    restore_nef_zip "$day" || { failed=$((failed + 1)); return 0; }
 
     ev="$EVENT"
     [ -s "$inc/.event" ] && ev=$(head -n 1 "$inc/.event")
@@ -561,9 +612,13 @@ process_date() {  # $1 = YYYYMMDD
     return 0
 }
 
-for day in $DATES; do process_jpgs "$day"; process_date "$day"; done
+for day in $DATES; do
+    process_jpgs "$day"; process_date "$day"
+    [ "$COMPRESS_NEF" -eq 1 ] && [ "$SKIP_DNG" -eq 0 ] && compress_nef "$day"
+done
 log ""
 [ "$SKIP_DNG" -eq 0 ] && log "Converted $converted NEF(s) to DNG, $conv_failed failed."
+[ "$nef_zipped" -gt 0 ] && log "Compressed $nef_zipped NEF folder(s) to NEF.zip."
 [ "$dupes" -gt 0 ] && log "Dropped $dupes duplicate NEF(s)."
 [ "$jpg_dupes" -gt 0 ] && log "Dropped $jpg_dupes duplicate JPG(s)."
 

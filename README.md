@@ -49,7 +49,8 @@ photo-tools/
 2. **Rename** — Newly imported NEFs and JPGs are renamed to their capture time with `rename_nef.sh`, so they sort chronologically. Other types (MOV, …) keep their camera names.
 3. **Convert** — NEFs are converted with Adobe DNG Converter into the date folder's `DNG/`, named `<YYYYMMDD>-<event>-<nnnnn>.dng` in capture order.
 4. **Copyright** — If a copyright owner is set (see [Copyright](#copyright)), each new DNG is stamped `© <year> <owner>`, with the year taken from that photo's capture date. NEFs are never modified.
-5. **Deduplicate** — A manifest prevents re-importing the same file (e.g. re-inserting a card or importing the camera's backup slot), and byte-identical NEFs and JPGs are dropped before filing, so a photo is never stored twice or given two DNGs.
+5. **Compress** — Once a date's NEFs are all converted and filed, its `NEF/` folder is zipped into `20261017/NEF.zip`, the zip is tested, and the `NEF/` folder is removed. Turn this off with `-z` or `PHOTO_COMPRESS_NEF=0`. It is skipped with `-k` (no DNGs were made) and while any NEF of that date is still waiting for a retry. If a later card adds NEFs to a date that already has a `NEF.zip`, the zip is unpacked first (so duplicates are still caught) and then re-zipped.
+6. **Deduplicate** — A manifest prevents re-importing the same file (e.g. re-inserting a card or importing the camera's backup slot), and byte-identical NEFs and JPGs are dropped before filing, so a photo is never stored twice or given two DNGs.
 
 **RAW+JPEG shots:** when the camera records both `DSC_0001.NEF` and `DSC_0001.JPG` for the same picture, both are copied, to `NEF/` and `JPG/`, and both are renamed to the same capture time (e.g. `NEF/2026101710000050.NEF` and `JPG/2026101710000050.JPG`), so the pair is easy to match up. Only NEFs are ever converted, so the DNG always comes from the NEF; the JPG is kept as-is, and JPEG-only shots get no DNG.
 
@@ -67,7 +68,8 @@ Options:
   -d DEST      destination root (required unless PHOTO_IMPORT_DEST is set)
   -D YYYYMMDD  put everything in this one date folder instead of sorting by capture date
   -V           verify copies byte-for-byte (default: size check)
-  -k           copy and rename only; skip DNG conversion
+  -k           copy and rename only; skip DNG conversion (and NEF compression)
+  -z           do not zip the NEF/ folders afterwards (default: zip them)
   -F           force: ignore the manifest and copy everything again
                (identical photos are still never converted twice)
   -x           eject the card when finished
@@ -76,6 +78,7 @@ Options:
 Environment overrides:
   PHOTO_IMPORT_DEST  destination root (same as -d; -d overrides it)
   PHOTO_COPYRIGHT_OWNER  default copyright owner (same as -c)
+  PHOTO_COMPRESS_NEF  set to 0 (or no/false/off) to not compress NEF/ folders (same as -z)
   DNG_CONVERTER  path to the converter binary
                  (default: /Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter)
   DNG_OPTS       converter options (default: "-c -p1" = lossless compressed, medium preview)
@@ -104,9 +107,8 @@ import_photos.sh -e "Detroit Riverwalk" -d /Volumes/alternate-archive -n
 /path/to/destination/
 ├── .photo-import-manifest.tsv     # every file imported so far (prevents re-imports)
 ├── 20261017/
-│   ├── NEF/                       # raw files, renamed to capture time
-│   │   ├── 20261017201845.NEF
-│   │   └── 2026101720184537.NEF
+│   ├── NEF.zip                    # raw files, renamed to capture time, zipped after import
+│   │                              # (a NEF/ folder instead with -z, -k, or PHOTO_COMPRESS_NEF=0)
 │   ├── JPG/                       # JPEGs, renamed the same way (a RAW+JPEG pair shares a name)
 │   │   └── 2026101720184537.JPG
 │   ├── MOV/                       # other types keep their camera names
