@@ -3,6 +3,7 @@
 # prereqs.sh — make sure the tools photo-tools needs are installed (macOS).
 #
 #   exiftool             Homebrew formula  (import_photos.sh, rename_nef.sh)
+#   xz                   Homebrew formula  (import_photos.sh, NEF compression)
 #   Adobe DNG Converter  Homebrew cask     (import_photos.sh)
 #
 # upload_azure.sh:
@@ -92,6 +93,18 @@ if ! check_exiftool; then
         if brew_install "exiftool" "exiftool" && check_exiftool; then :; else
             problems=$((problems + 1))
         fi
+    fi
+fi
+
+# ---------- xz (NEF compression in import_photos.sh) -------------------------
+if p=$(command -v xz 2>/dev/null); then
+    ok "xz $(xz --version 2>/dev/null | head -n 1 | awk '{print $NF}')  ($p)"
+else
+    missing "xz"
+    if brew_install "xz" "xz" && p=$(command -v xz 2>/dev/null); then
+        ok "xz  ($p)"
+    else
+        problems=$((problems + 1))
     fi
 fi
 

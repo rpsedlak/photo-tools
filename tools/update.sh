@@ -31,7 +31,7 @@ echo "Checking prerequisites..."
 bash "$PREREQS" || die "prerequisites are not ready (see above)."
 
 formulas=()
-for formula in exiftool azure-cli azcopy jq; do
+for formula in exiftool xz azure-cli azcopy jq; do
     if "$BREW" list --formula "$formula" >/dev/null 2>&1; then
         formulas+=("$formula")
     fi

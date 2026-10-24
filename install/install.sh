@@ -4,7 +4,7 @@
 #              into /usr/local/bin.
 #
 # First runs tools/prereqs.sh, which installs anything missing (exiftool,
-# Adobe DNG Converter, Azure CLI, azcopy and jq) with Homebrew; stops if that
+# xz, Adobe DNG Converter, Azure CLI, azcopy and jq) with Homebrew; stops if that
 # fails.
 #
 # Then installs every *.sh in the repository's tool directories (workflow/,
