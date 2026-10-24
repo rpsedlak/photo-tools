@@ -64,7 +64,7 @@ Options:
   -c OWNER     copyright owner written into each new DNG, e.g. "Richard Sedlak"
                (default: $PHOTO_COPYRIGHT_OWNER; no copyright if neither is set)
   -s SOURCE    card mount point (default: the volume in /Volumes that has a DCIM folder)
-  -d DEST      destination root (default: /Volumes/photos-01)
+  -d DEST      destination root (required unless PHOTO_IMPORT_DEST is set)
   -D YYYYMMDD  put everything in this one date folder instead of sorting by capture date
   -V           verify copies byte-for-byte (default: size check)
   -k           copy and rename only; skip DNG conversion
@@ -74,6 +74,7 @@ Options:
   -n           dry run: show what would happen, change nothing
 
 Environment overrides:
+  PHOTO_IMPORT_DEST  destination root (same as -d; -d overrides it)
   PHOTO_COPYRIGHT_OWNER  default copyright owner (same as -c)
   DNG_CONVERTER  path to the converter binary
                  (default: /Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter)
@@ -82,6 +83,9 @@ Environment overrides:
 
 **Examples:**
 ```bash
+# Set a destination once for repeated imports
+export PHOTO_IMPORT_DEST="/Volumes/photos-01"
+
 # Preview what will happen
 import_photos.sh -e "Detroit Riverwalk" -n
 
@@ -90,11 +94,14 @@ import_photos.sh -e "Detroit Riverwalk" -x
 
 # Second card from the same shoot: DNG numbering continues where the first card left off
 import_photos.sh -e "Detroit Riverwalk" -s /Volumes/BACKUP -x
+
+# Override PHOTO_IMPORT_DEST for one import
+import_photos.sh -e "Detroit Riverwalk" -d /Volumes/alternate-archive -n
 ```
 
 **Resulting archive layout:**
 ```
-/Volumes/photos-01/
+/path/to/destination/
 ├── .photo-import-manifest.tsv     # every file imported so far (prevents re-imports)
 ├── 20261017/
 │   ├── NEF/                       # raw files, renamed to capture time

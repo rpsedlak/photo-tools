@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# import_photos.sh — import photos from one SD card onto the photos-01 disk.
+# import_photos.sh — import photos from one SD card onto a destination disk.
 #
 #   1. COPY    Every file in the card's DCIM folder is copied (never moved —
 #              the card is left untouched) into a folder for its capture date,
 #              then a subfolder for its extension, and each copy is verified:
-#                  /Volumes/photos-01/20261017/NEF/
+#                  <destination>/20261017/NEF/
 #                                             /JPG/
 #                                             /MOV/
-#                  /Volumes/photos-01/20261018/NEF/ ...
+#                  <destination>/20261018/NEF/ ...
 #              The date comes from the photo's EXIF capture time
 #              (DateTimeOriginal), or the file's timestamp when there is none.
 #              Each of those date folders also gets an empty prod/ folder
@@ -39,7 +39,7 @@
 #   overwritten. Two events on the same day each have their own sequence.
 #
 # No duplicates
-#   * A manifest (.photo-import-manifest.tsv on photos-01) remembers every file
+#   * A manifest (.photo-import-manifest.tsv on the destination) remembers every file
 #     imported (name + size + EXIF capture time), so re-inserting a card — or
 #     importing the backup card from the camera's second slot — copies nothing.
 #   * Before converting, each new NEF is compared byte-for-byte with the NEFs
@@ -54,7 +54,7 @@
 #                (default: $PHOTO_COPYRIGHT_OWNER; no copyright if neither is set)
 #   -s SOURCE    card mount point (default: the volume in /Volumes that has a
 #                DCIM folder)
-#   -d DEST      destination root (default: /Volumes/photos-01)
+#   -d DEST      destination root (required unless PHOTO_IMPORT_DEST is set)
 #   -D YYYYMMDD  put everything in this one date folder instead of sorting
 #                by each file's capture date
 #   -V           verify copies byte-for-byte (default: size check)
@@ -65,6 +65,7 @@
 #   -n           dry run: show what would happen, change nothing
 #
 # Environment overrides:
+#   PHOTO_IMPORT_DEST  destination root (same as -d; -d overrides it)
 #   PHOTO_COPYRIGHT_OWNER  default for -c; set it once in ~/.zshrc, e.g.
 #                  export PHOTO_COPYRIGHT_OWNER="Richard Sedlak"
 #   DNG_CONVERTER  path to the converter binary
@@ -79,7 +80,7 @@
 set -u
 
 # ---------- settings ----------------------------------------------------------
-DEST_ROOT="/Volumes/photos-01"
+DEST_ROOT="${PHOTO_IMPORT_DEST:-}"
 VOLUMES_DIR="${VOLUMES_DIR:-/Volumes}"
 DNG_CONVERTER="${DNG_CONVERTER:-/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter}"
 DNG_OPTS="${DNG_OPTS:--c -p1}"
@@ -161,7 +162,8 @@ EVENT=$(printf '%s' "$EVENT_RAW" | tr '[:upper:]' '[:lower:]' \
 [ -n "$EVENT" ] || die "event name '$EVENT_RAW' has no usable letters or digits."
 [ -z "$FORCE_DATE" ] || is_ymd "$FORCE_DATE" || die "-D must be YYYYMMDD, got '$FORCE_DATE'."
 
-[ -d "$DEST_ROOT" ] || die "destination '$DEST_ROOT' not found — is photos-01 plugged in?"
+[ -n "$DEST_ROOT" ] || die "a destination root is required (-d DEST or PHOTO_IMPORT_DEST)."
+[ -d "$DEST_ROOT" ] || die "destination '$DEST_ROOT' not found."
 DEST_ROOT=$(cd "$DEST_ROOT" && pwd)     # the DNG converter needs absolute paths
 [ -w "$DEST_ROOT" ] || [ "$DRY_RUN" -eq 1 ] || die "destination '$DEST_ROOT' is not writable."
 
