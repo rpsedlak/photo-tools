@@ -53,7 +53,7 @@ photo-tools/
 5. **Compress** — Once a date's NEFs are all converted and filed, its `NEF/` folder is zipped into `20261017/NEF.zip`, the zip is tested, and the `NEF/` folder is removed. Turn this off with `-z` or `PHOTO_COMPRESS_NEF=0`. It is skipped with `-k` (no DNGs were made) and while any NEF of that date is still waiting for a retry. If a later card adds NEFs to a date that already has a `NEF.zip`, the zip is unpacked first (so duplicates are still caught) and then re-zipped.
 6. **Deduplicate** — A manifest prevents re-importing the same file (e.g. re-inserting a card or importing the camera's backup slot), and byte-identical NEFs and JPGs are dropped before filing, so a photo is never stored twice or given two DNGs.
 
-**RAW+JPEG shots:** when the camera records both `DSC_0001.NEF` and `DSC_0001.JPG` for the same picture, both are copied, to `NEF/` and `JPG/`, and renamed to matching camera-aware stems by default (e.g. `2026101710000050_Nikon-Z-8.NEF` and `.JPG`). Only NEFs are converted, so the DNG always comes from the NEF; the JPG is kept as-is, and JPEG-only shots get no DNG.
+**RAW+JPEG shots:** when the camera records both `DSC_0001.NEF` and `DSC_0001.JPG` for the same picture, both are copied, to `NEF/` and `JPG/`, and renamed to matching camera-aware stems by default (e.g. `2026101710000050-Nikon-Z-8.NEF` and `.JPG`). Only NEFs are converted, so the DNG always comes from the NEF; the JPG is kept as-is, and JPEG-only shots get no DNG.
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
@@ -115,7 +115,7 @@ import_photos.sh -e "Detroit Riverwalk" -d /Volumes/alternate-archive -n
 │   ├── NEF.zip                    # raw files, timestamp-camera names
 │   │                              # (a NEF/ folder instead with -z, -k, or PHOTO_COMPRESS_NEF=0)
 │   ├── JPG/                       # JPEGs, renamed the same way (a RAW+JPEG pair shares a name)
-│   │   └── 2026101720184537_Nikon-Z-8.JPG
+│   │   └── 2026101720184537-Nikon-Z-8.JPG
 │   ├── MOV/                       # other types keep their camera names
 │   ├── DNG/                       # converted files, numbered per date + event
 │   │   └── 2026101720184537_Nikon-Z-8.dng
@@ -158,12 +158,12 @@ These are the fields Lightroom shows as Copyright, Creator and Copyright Status.
 
 ### `workflow/rename_nef.sh` — Rename NEF (or JPG) files by capture time
 
-Renames Nikon NEF files (and matching `.xmp` sidecars) using the EXIF `DateTimeOriginal` and `SubSecTimeOriginal` tags. Timestamp names always contain at least two subsecond digits: missing values become `00`, and one-digit values are right-padded (for example, `3` becomes `30`). The EXIF `Make` and `Model` are appended by default, producing names such as `2026101720184537_Nikon-Z-8.NEF`; `-m` explicitly keeps camera naming enabled. Missing camera tags produce a warning and a timestamp-only name. With `-e jpg`, JPGs can be renamed the same way so RAW+JPEG pairs share a name.
+Renames Nikon NEF files (and matching `.xmp` sidecars) using the EXIF `DateTimeOriginal` and `SubSecTimeOriginal` tags. Timestamp names always contain at least two subsecond digits: missing values become `00`, and one-digit values are right-padded (for example, `3` becomes `30`). The EXIF `Make` and `Model` are appended by default, producing names such as `2026101720184537-Nikon-Z-8.NEF`; `-m` explicitly keeps camera naming enabled. Missing camera tags produce a warning and a timestamp-only name. With `-e jpg`, JPGs can be renamed the same way so RAW+JPEG pairs share a name.
 
 ```
-DSC_0142.NEF -> 2026101720184500_Nikon-Z-8.NEF      (no subseconds; 00 is used)
-DSC_0143.NEF -> 2026101720184537_Nikon-Z-8.NEF      (camera naming is default)
-DSC_0143.JPG -> 2026101720184537_Nikon-Z-8.JPG      (with -e jpg)
+DSC_0142.NEF -> 2026101720184500-Nikon-Z-8.NEF      (no subseconds; 00 is used)
+DSC_0143.NEF -> 2026101720184537-Nikon-Z-8.NEF      (camera naming is default)
+DSC_0143.JPG -> 2026101720184537-Nikon-Z-8.JPG      (with -e jpg)
 ```
 
 **Usage** (installed in `/usr/local/bin`):

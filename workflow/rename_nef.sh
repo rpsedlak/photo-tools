@@ -4,8 +4,8 @@
 #                 Include camera Make and Model by default. With -e, other
 #                 types (e.g. the JPG of a RAW+JPEG shot) can be renamed too.
 #
-#   2026101720184500_Nikon-Z-8.NEF <- 2026-10-17 20:18:45 (no subseconds)
-#   2026101720184537_Nikon-Z-8.NEF <- 2026-10-17 20:18:45.37
+#   2026101720184500-Nikon-Z-8.NEF <- 2026-10-17 20:18:45 (no subseconds)
+#   2026101720184537-Nikon-Z-8.NEF <- 2026-10-17 20:18:45.37
 #
 # Uses DateTimeOriginal + SubSecTimeOriginal. Camera labels use Make and Model,
 # with non-alphanumeric characters replaced by hyphens. If two shots land on
@@ -94,7 +94,7 @@ while IFS=$'\t' read -r src dto subsec make model; do
     if [ "$CAMERA_NAME" -eq 1 ]; then
         camera=$(printf '%s %s' "$make" "$model" | sed -E 's/[^[:alnum:]]+/-/g; s/^-|-$//g')
         if [ -n "$camera" ]; then
-            base="${base}_${camera}"
+            base="${base}-${camera}"
         else
             echo "WARN  $src (camera Make/Model unavailable; using timestamp only)" >&2
         fi
