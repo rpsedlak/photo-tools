@@ -90,6 +90,17 @@ while IFS=$'\t' read -r src date; do
     prefix="$date-$EVENT"
     name=$(basename "$src")
     stem="${name%.*}"
+    side_sources=()
+    side_targets=()
+    for side in "$dir/$stem.xmp" "$dir/$stem.XMP" "$src.xmp" "$src.XMP"; do
+        [ -e "$side" ] || continue
+        duplicate=0
+        for ((i = 0; i < ${#side_sources[@]}; i++)); do
+            existing_side="${side_sources[$i]}"
+            [ "$side" = "$existing_side" ] && duplicate=1
+        done
+        [ "$duplicate" -eq 1 ] || side_sources[${#side_sources[@]}]="$side"
+    done
     case "$stem" in
         "$prefix"-[0-9][0-9][0-9][0-9][0-9])
             skipped=$((skipped + 1))
@@ -100,11 +111,31 @@ while IFS=$'\t' read -r src date; do
     while :; do
         new=$(printf '%s-%05d' "$prefix" "$serial")
         target="$dir/$new.dng"
-        case "$planned" in *"|$target|"*) serial=$((serial + 1)); continue ;; esac
-        [ -e "$target" ] || break
+        collision=0
+        case "$planned" in *"|$target|"*) collision=1 ;; esac
+        [ -e "$target" ] && collision=1
+        side_targets=()
+        for ((i = 0; i < ${#side_sources[@]}; i++)); do
+            side="${side_sources[$i]}"
+            side_ext="${side##*.}"
+            case "$side" in
+                "$src".*) side_target="$target.$side_ext" ;;
+                *)        side_target="$dir/$new.$side_ext" ;;
+            esac
+            side_targets[i]="$side_target"
+            case "$planned" in *"|$side_target|"*) collision=1 ;; esac
+            if [ -e "$side_target" ] && [ "$side_target" != "$side" ]; then
+                collision=1
+            fi
+        done
+        [ "$collision" -eq 0 ] && break
         serial=$((serial + 1))
     done
     planned="${planned}${target}|"
+    for ((i = 0; i < ${#side_targets[@]}; i++)); do
+        side_target="${side_targets[$i]}"
+        planned="${planned}${side_target}|"
+    done
 
     if [ "$DRY_RUN" -eq 1 ]; then
         echo "WOULD $src -> $new.dng"
@@ -114,6 +145,23 @@ while IFS=$'\t' read -r src date; do
     else
         echo "FAIL  $src" >&2
         failed=$((failed + 1))
+    fi
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        for ((i = 0; i < ${#side_sources[@]}; i++)); do
+            echo "      + $(basename "${side_sources[$i]}") -> $(basename "${side_targets[$i]}")"
+        done
+    elif [ -e "$target" ] && [ ! -e "$src" ]; then
+        for ((i = 0; i < ${#side_sources[@]}; i++)); do
+            side="${side_sources[$i]}"
+            side_target="${side_targets[$i]}"
+            if mv -n "$side" "$side_target" && [ ! -e "$side" ]; then
+                echo "      + $(basename "$side") -> $(basename "$side_target")"
+            else
+                echo "FAIL  $side" >&2
+                failed=$((failed + 1))
+            fi
+        done
     fi
 done < <(exiftool -q -q -m -f $RECURSE -ext dng -d '%Y%m%d' \
             -p '$Directory/$FileName	$DateTimeOriginal' "$DIR" 2>/dev/null | sort)
