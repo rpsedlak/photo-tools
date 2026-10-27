@@ -16,16 +16,19 @@
 #              RAW+JPEG shots (DSC_0001.NEF + DSC_0001.JPG) are both copied,
 #              each to its own extension folder.
 #   2. RENAME  The newly imported NEFs and JPGs are renamed to their capture
-#              time, YYYYMMDDHHMMSS<subsec>.NEF / .JPG, by rename_nef.sh (same
-#              folder as this script), so they sort by time and the two files
-#              of a RAW+JPEG shot share a name:
-#                  20261017/NEF/2026101720184537.NEF
-#                  20261017/JPG/2026101720184537.JPG
+#              time by rename_nef.sh (same folder as this script), so they sort
+#              by time and RAW+JPEG pairs share a name. With -m, the camera's
+#              Make and Model are added to both filenames:
+#                  20261017/NEF/2026101720184537_Nikon-Z-8.NEF
+#                  20261017/JPG/2026101720184537_Nikon-Z-8.JPG
+#              Timestamp names always include at least two subsecond digits;
+#              missing values use 00.
 #              Other types (MOV, ...) keep their camera names.
 #   3. DNG     Those NEFs are converted with Adobe DNG Converter into the
-#              date folder's DNG/, named <YYYYMMDD>-<event>-<nnnnn>.dng in
-#              capture order. Only NEFs are converted: for a RAW+JPEG shot the
-#              DNG always comes from the NEF, and JPEG-only shots get no DNG.
+#              date folder's DNG/. By default, DNGs are named
+#              <YYYYMMDD>-<event>-<nnnnn>.dng; with -m they use the NEF's
+#              timestamp and camera name. Only NEFs are converted: for a
+#              RAW+JPEG shot the DNG always comes from the NEF.
 #   4. COPYRIGHT
 #              With an owner set (-c, or PHOTO_COPYRIGHT_OWNER), each new DNG
 #              gets "© <year> <owner>" as its copyright and <owner> as its
@@ -63,6 +66,7 @@
 #   -s SOURCE    card mount point (default: the volume in /Volumes that has a
 #                DCIM folder)
 #   -d DEST      destination root (required unless PHOTO_IMPORT_DEST is set)
+#   -m           include the camera Make and Model in NEF, JPG and DNG filenames
 #   -D YYYYMMDD  put everything in this one date folder instead of sorting
 #                by each file's capture date
 #   -V           verify copies byte-for-byte (default: size check)
@@ -107,20 +111,21 @@ esac
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 RENAME_NEF="$SCRIPT_DIR/rename_nef.sh"
 
-EVENT_RAW=""; SOURCE=""; FORCE_DATE=""; VERIFY_BYTES=0; SKIP_DNG=0
+EVENT_RAW=""; SOURCE=""; FORCE_DATE=""; VERIFY_BYTES=0; SKIP_DNG=0; CAMERA_NAME=0
 FORCE=0; EJECT=0; DRY_RUN=0
 
 usage() { sed -n '/^# Usage:/,/^# Environment/p' "$0" | sed -e 's/^# \{0,1\}//' -e '$d' >&2; exit 1; }
 die()   { echo "Error: $*" >&2; exit 1; }
 log()   { echo "$*"; }
 
-while getopts ":e:c:s:d:D:VkzFxnh" opt; do
+while getopts ":e:c:s:d:D:VkzFmxnh" opt; do
     case "$opt" in
         e) EVENT_RAW="$OPTARG" ;;
         c) COPYRIGHT_OWNER="$OPTARG" ;;
         s) SOURCE="${OPTARG%/}" ;;
         d) DEST_ROOT="${OPTARG%/}" ;;
         D) FORCE_DATE="$OPTARG" ;;
+        m) CAMERA_NAME=1 ;;
         V) VERIFY_BYTES=1 ;;
         k) SKIP_DNG=1 ;;
         z) COMPRESS_NEF=0 ;;
@@ -413,9 +418,13 @@ next_serial() {   # $1 = DNG dir, $2 = prefix; highest existing NNNNN, plus one
 }
 
 file_photo() {    # $1 = NEF/JPG in .incoming, $2 = its final dir; move it (and any sidecar) out
-    local src="$1" nd="$2" base t n=0 side
+    local src="$1" nd="$2" base t n=0 side dest_stem="${3:-}"
     base=$(basename "$src"); t="$nd/$base"
-    while [ -e "$t" ]; do n=$((n + 1)); t="$nd/${base%.*}_$n.${base##*.}"; done
+    if [ -n "$dest_stem" ]; then
+        t="$nd/$dest_stem.${base##*.}"
+    else
+        while [ -e "$t" ]; do n=$((n + 1)); t="$nd/${base%.*}_$n.${base##*.}"; done
+    fi
     mv -n "$src" "$t"
     for side in "$src.xmp" "$src.XMP" "${src%.*}.xmp" "${src%.*}.XMP"; do
         [ -e "$side" ] && mv -n "$side" "$nd/"
@@ -423,13 +432,19 @@ file_photo() {    # $1 = NEF/JPG in .incoming, $2 = its final dir; move it (and 
 }
 
 is_duplicate() {  # $1 = renamed NEF/JPG in .incoming, $2 = its final dir
-    # Same photo => same capture-time name (rename_nef adds _1, _2 on clashes).
-    local f="$1" nd="$2" stem root c
+    # Also check timestamp-only names from archives created before camera naming.
+    local f="$1" nd="$2" stem root camera_time c
     stem=$(basename "$f"); stem="${stem%.*}"
     root=$(printf '%s' "$stem" | sed 's/_[1-9][0-9]\{0,2\}$//')
     for c in "$nd/$root".* "$nd/${root}"_[1-9]*.*; do
         cmp -s "$f" "$c" && return 0
     done
+    if [ "$CAMERA_NAME" -eq 1 ]; then
+        camera_time="${root:0:14}"
+        for c in "$nd/$camera_time"*; do
+            cmp -s "$f" "$c" && return 0
+        done
+    fi
     return 1
 }
 
@@ -479,7 +494,11 @@ process_jpgs() {  # $1 = YYYYMMDD; rename new JPGs to capture time and file them
 
     log ""
     log "$day: renaming ${#jpgs[@]} JPG(s) to capture time..."
-    run_rename "$inc" "${#jpgs[@]}" -e jpg
+    if [ "$CAMERA_NAME" -eq 1 ]; then
+        run_rename "$inc" "${#jpgs[@]}" -m -e jpg
+    else
+        run_rename "$inc" "${#jpgs[@]}" -e jpg
+    fi
 
     jpgs=( "$inc"/*.[Jj][Pp][Gg] )
     for f in "${jpgs[@]}"; do
@@ -495,7 +514,7 @@ process_jpgs() {  # $1 = YYYYMMDD; rename new JPGs to capture time and file them
 }
 
 process_date() {  # $1 = YYYYMMDD
-    local day="$1" nd dd inc din ev nefs f j base stem dng c dt prefix cur_prefix serial out rights_ok t0 made total
+    local day="$1" nd dd inc din ev nefs f j base stem dng c dt prefix cur_prefix serial camera_stem out rights_ok t0 made total
     nd="$DEST_ROOT/$day/NEF"; inc="$nd/.incoming"
     dd="$DEST_ROOT/$day/DNG"; din="$dd/.incoming"
     nefs=( "$inc"/*.[Nn][Ee][Ff] )
@@ -508,7 +527,11 @@ process_date() {  # $1 = YYYYMMDD
 
     log ""
     log "$day: renaming ${#nefs[@]} NEF(s) to capture time..."
-    run_rename "$inc" "${#nefs[@]}"
+    if [ "$CAMERA_NAME" -eq 1 ]; then
+        run_rename "$inc" "${#nefs[@]}" -m
+    else
+        run_rename "$inc" "${#nefs[@]}"
+    fi
 
     # Drop any NEF that is byte-identical to one already imported.
     nefs=( "$inc"/*.[Nn][Ee][Ff] )
@@ -592,14 +615,28 @@ process_date() {  # $1 = YYYYMMDD
             fi
             dt=$(awk -F'\t' -v n="$base" '$1 == n {print $2; exit}' "$WORK/dates")
             is_ymd "$dt" || dt="$day"
-            prefix="$dt-$ev"
-            # Continue from the highest number already there (e.g. an earlier card).
-            if [ "$prefix" != "$cur_prefix" ]; then cur_prefix="$prefix"; serial=$(next_serial "$dd" "$prefix"); fi
-            out=$(printf '%s/%s-%05d.dng' "$dd" "$prefix" "$serial")
-            while [ -e "$out" ]; do serial=$((serial + 1)); out=$(printf '%s/%s-%05d.dng' "$dd" "$prefix" "$serial"); done
+            if [ "$CAMERA_NAME" -eq 1 ]; then
+                camera_stem="$stem"
+                serial=1
+                while [ -e "$dd/$camera_stem.dng" ] || [ -e "$nd/$camera_stem.${f##*.}" ]; do
+                    camera_stem="${stem}_$serial"
+                    serial=$((serial + 1))
+                done
+                out="$dd/$camera_stem.dng"
+            else
+                prefix="$dt-$ev"
+                # Continue from the highest number already there (e.g. an earlier card).
+                if [ "$prefix" != "$cur_prefix" ]; then cur_prefix="$prefix"; serial=$(next_serial "$dd" "$prefix"); fi
+                out=$(printf '%s/%s-%05d.dng' "$dd" "$prefix" "$serial")
+                while [ -e "$out" ]; do serial=$((serial + 1)); out=$(printf '%s/%s-%05d.dng' "$dd" "$prefix" "$serial"); done
+            fi
             if mv -n "$dng" "$out" && [ -e "$out" ] && [ ! -e "$dng" ]; then
                 serial=$((serial + 1)); converted=$((converted + 1))
-                file_photo "$f" "$nd"
+                if [ "$CAMERA_NAME" -eq 1 ]; then
+                    file_photo "$f" "$nd" "$camera_stem"
+                else
+                    file_photo "$f" "$nd"
+                fi
             else
                 echo "FAIL  could not file $dng" >&2
                 conv_failed=$((conv_failed + 1))
