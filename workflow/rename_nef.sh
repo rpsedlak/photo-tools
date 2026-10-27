@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
 # rename_nef.sh — rename Nikon NEF files using capture time stored in EXIF.
-#                 With -m, include the camera Make and Model. With -e, other
+#                 Include camera Make and Model by default. With -e, other
 #                 types (e.g. the JPG of a RAW+JPEG shot) can be renamed too.
 #
-#   2026101720184500.NEF            <- 2026-10-17 20:18:45 (no subseconds)
-#   2026101720184537_Nikon-Z-8.NEF <- with -m, 2026-10-17 20:18:45.37
+#   2026101720184500_Nikon-Z-8.NEF <- 2026-10-17 20:18:45 (no subseconds)
+#   2026101720184537_Nikon-Z-8.NEF <- 2026-10-17 20:18:45.37
 #
 # Uses DateTimeOriginal + SubSecTimeOriginal. Camera labels use Make and Model,
 # with non-alphanumeric characters replaced by hyphens. If two shots land on
@@ -17,7 +17,7 @@
 #   ./rename_nef.sh [-n] [-r] [-m] [-e EXT] DIRECTORY
 #     -n       dry run: show what would be renamed, change nothing
 #     -r       recurse into subdirectories
-#     -m       include the camera Make and Model in the new name
+#     -m       explicitly include the camera Make and Model (default: on)
 #     -e EXT   rename files with this extension instead of NEF, e.g. -e jpg
 #              (matches upper and lower case; the extension's case is kept)
 #
@@ -31,13 +31,13 @@ set -u
 DRY_RUN=0
 RECURSE=""
 EXT="nef"
-CAMERA_NAME=0
+CAMERA_NAME=1
 
 usage() {
     echo "Usage: $(basename "$0") [-n] [-r] [-m] [-e EXT] DIRECTORY" >&2
     echo "  -n      dry run (show changes only)" >&2
     echo "  -r      recurse into subdirectories" >&2
-    echo "  -m      include the camera Make and Model in the new name" >&2
+    echo "  -m      include the camera Make and Model (default: on)" >&2
     echo "  -e EXT  rename this file type instead of NEF (e.g. jpg)" >&2
     exit 1
 }

@@ -17,18 +17,17 @@
 #              each to its own extension folder.
 #   2. RENAME  The newly imported NEFs and JPGs are renamed to their capture
 #              time by rename_nef.sh (same folder as this script), so they sort
-#              by time and RAW+JPEG pairs share a name. With -m, the camera's
-#              Make and Model are added to both filenames:
+#              by time and RAW+JPEG pairs share a name. The camera's Make and
+#              Model are included by default:
 #                  20261017/NEF/2026101720184537_Nikon-Z-8.NEF
 #                  20261017/JPG/2026101720184537_Nikon-Z-8.JPG
 #              Timestamp names always include at least two subsecond digits;
 #              missing values use 00.
 #              Other types (MOV, ...) keep their camera names.
 #   3. DNG     Those NEFs are converted with Adobe DNG Converter into the
-#              date folder's DNG/. By default, DNGs are named
-#              <YYYYMMDD>-<event>-<nnnnn>.dng; with -m they use the NEF's
-#              timestamp and camera name. Only NEFs are converted: for a
-#              RAW+JPEG shot the DNG always comes from the NEF.
+#              date folder's DNG/, using each NEF's timestamp and camera name.
+#              Only NEFs are converted: for a RAW+JPEG shot the DNG always
+#              comes from the NEF.
 #   4. COPYRIGHT
 #              With an owner set (-c, or PHOTO_COPYRIGHT_OWNER), each new DNG
 #              gets "© <year> <owner>" as its copyright and <owner> as its
@@ -66,7 +65,8 @@
 #   -s SOURCE    card mount point (default: the volume in /Volumes that has a
 #                DCIM folder)
 #   -d DEST      destination root (required unless PHOTO_IMPORT_DEST is set)
-#   -m           include the camera Make and Model in NEF, JPG and DNG filenames
+#   -m           explicitly include the camera Make and Model in NEF, JPG and
+#                DNG filenames (default: on)
 #   -D YYYYMMDD  put everything in this one date folder instead of sorting
 #                by each file's capture date
 #   -V           verify copies byte-for-byte (default: size check)
@@ -111,7 +111,7 @@ esac
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 RENAME_NEF="$SCRIPT_DIR/rename_nef.sh"
 
-EVENT_RAW=""; SOURCE=""; FORCE_DATE=""; VERIFY_BYTES=0; SKIP_DNG=0; CAMERA_NAME=0
+EVENT_RAW=""; SOURCE=""; FORCE_DATE=""; VERIFY_BYTES=0; SKIP_DNG=0; CAMERA_NAME=1
 FORCE=0; EJECT=0; DRY_RUN=0
 
 usage() { sed -n '/^# Usage:/,/^# Environment/p' "$0" | sed -e 's/^# \{0,1\}//' -e '$d' >&2; exit 1; }
