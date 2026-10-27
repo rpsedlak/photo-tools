@@ -13,7 +13,8 @@ photo-tools/
 │   ├── install.sh            # installs prerequisites, then copies every tool script into /usr/local/bin
 ├── workflow/                 # post-shoot workflow: SD card import and file organization
 │   ├── import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
-│   └── rename_nef.sh         # rename NEFs/JPGs to capture time (used by import_photos.sh)
+│   ├── rename_nef.sh         # rename NEFs/JPGs to capture time (used by import_photos.sh)
+│   └── rename_dng.sh         # rename DNGs by capture date, event and serial
 ├── cloud/                    # cloud backup and sharing
 │   └── upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
 └── tools/                    # dependency management
@@ -46,13 +47,13 @@ photo-tools/
 
 **Workflow:**
 1. **Copy** — Every file in the card's DCIM folder is copied (never moved; the card is left untouched) into folders by capture date and file type (`20261017/NEF/`, `20261017/JPG/`, …), and each copy is verified. Each date folder also gets an empty `prod/` folder next to `NEF/` and `DNG/`; if `prod/` already exists it is left exactly as it is.
-2. **Rename** — Newly imported NEFs and JPGs are renamed to their capture time with `rename_nef.sh`, so they sort chronologically. Other types (MOV, …) keep their camera names.
-3. **Convert** — NEFs are converted with Adobe DNG Converter into the date folder's `DNG/`, named `<YYYYMMDD>-<event>-<nnnnn>.dng` in capture order.
+2. **Rename** — Newly imported NEFs and JPGs are renamed to their capture time with `rename_nef.sh`, so they sort chronologically. Timestamp filenames always include subseconds: missing EXIF values become `00`, and one-digit values are right-padded to two digits. Their EXIF camera Make and Model are included by default; other types (MOV, …) keep their camera names.
+3. **Convert** — NEFs are converted with Adobe DNG Converter into the date folder's `DNG/`, using each NEF's date-time-camera filename stem. Conversion and copyright stamping are unchanged.
 4. **Copyright** — If a copyright owner is set (see [Copyright](#copyright)), each new DNG is stamped `© <year> <owner>`, with the year taken from that photo's capture date. NEFs are never modified.
 5. **Compress** — Once a date's NEFs are all converted and filed, its `NEF/` folder is zipped into `20261017/NEF.zip`, the zip is tested, and the `NEF/` folder is removed. Turn this off with `-z` or `PHOTO_COMPRESS_NEF=0`. It is skipped with `-k` (no DNGs were made) and while any NEF of that date is still waiting for a retry. If a later card adds NEFs to a date that already has a `NEF.zip`, the zip is unpacked first (so duplicates are still caught) and then re-zipped.
 6. **Deduplicate** — A manifest prevents re-importing the same file (e.g. re-inserting a card or importing the camera's backup slot), and byte-identical NEFs and JPGs are dropped before filing, so a photo is never stored twice or given two DNGs.
 
-**RAW+JPEG shots:** when the camera records both `DSC_0001.NEF` and `DSC_0001.JPG` for the same picture, both are copied, to `NEF/` and `JPG/`, and both are renamed to the same capture time (e.g. `NEF/2026101710000050.NEF` and `JPG/2026101710000050.JPG`), so the pair is easy to match up. Only NEFs are ever converted, so the DNG always comes from the NEF; the JPG is kept as-is, and JPEG-only shots get no DNG.
+**RAW+JPEG shots:** when the camera records both `DSC_0001.NEF` and `DSC_0001.JPG` for the same picture, both are copied, to `NEF/` and `JPG/`, and renamed to matching camera-aware stems by default (e.g. `2026101710000050-Nikon-Z-8.NEF` and `.JPG`). Only NEFs are converted, so the DNG always comes from the NEF; the JPG is kept as-is, and JPEG-only shots get no DNG.
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
@@ -66,6 +67,7 @@ Options:
                (default: $PHOTO_COPYRIGHT_OWNER; no copyright if neither is set)
   -s SOURCE    card mount point (default: the volume in /Volumes that has a DCIM folder)
   -d DEST      destination root (required unless PHOTO_IMPORT_DEST is set)
+  -m           explicitly include the EXIF camera Make and Model in filenames (default: on)
   -D YYYYMMDD  put everything in this one date folder instead of sorting by capture date
   -V           verify copies byte-for-byte (default: size check)
   -k           copy and rename only; skip DNG conversion (and NEF compression)
@@ -92,6 +94,9 @@ export PHOTO_IMPORT_DEST="/Volumes/photos-01"
 # Preview what will happen
 import_photos.sh -e "Detroit Riverwalk" -n
 
+# Camera Make and Model are included by default in NEF, JPG and DNG filenames
+import_photos.sh -e "Detroit Riverwalk" -n
+
 # Import, then eject the card
 import_photos.sh -e "Detroit Riverwalk" -x
 
@@ -107,14 +112,13 @@ import_photos.sh -e "Detroit Riverwalk" -d /Volumes/alternate-archive -n
 /path/to/destination/
 ├── .photo-import-manifest.tsv     # every file imported so far (prevents re-imports)
 ├── 20261017/
-│   ├── NEF.zip                    # raw files, renamed to capture time, zipped after import
+│   ├── NEF.zip                    # raw files, timestamp-camera names
 │   │                              # (a NEF/ folder instead with -z, -k, or PHOTO_COMPRESS_NEF=0)
 │   ├── JPG/                       # JPEGs, renamed the same way (a RAW+JPEG pair shares a name)
-│   │   └── 2026101720184537.JPG
+│   │   └── 2026101720184537-Nikon-Z-8.JPG
 │   ├── MOV/                       # other types keep their camera names
 │   ├── DNG/                       # converted files, numbered per date + event
-│   │   ├── 20261017-detroit-riverwalk-00001.dng
-│   │   └── 20261017-detroit-riverwalk-00002.dng
+│   │   └── 2026101720184537_Nikon-Z-8.dng
 │   └── prod/                      # created empty; never written to by the script
 └── 20261018/
     └── ...
@@ -154,24 +158,41 @@ These are the fields Lightroom shows as Copyright, Creator and Copyright Status.
 
 ### `workflow/rename_nef.sh` — Rename NEF (or JPG) files by capture time
 
-Renames Nikon NEF files (and matching `.xmp` sidecars) to `YYYYMMDDHHMMSS[subseconds].NEF` using the EXIF `DateTimeOriginal` and `SubSecTimeOriginal` tags. With `-e jpg` it renames JPGs the same way. That's how `import_photos.sh` gives both files of a RAW+JPEG shot the same name.
+Renames Nikon NEF files (and matching `.xmp` sidecars) using the EXIF `DateTimeOriginal` and `SubSecTimeOriginal` tags. Timestamp names always contain at least two subsecond digits: missing values become `00`, and one-digit values are right-padded (for example, `3` becomes `30`). The EXIF `Make` and `Model` are appended by default, producing names such as `2026101720184537-Nikon-Z-8.NEF`; `-m` explicitly keeps camera naming enabled. Missing camera tags produce a warning and a timestamp-only name. With `-e jpg`, JPGs can be renamed the same way so RAW+JPEG pairs share a name.
 
 ```
-DSC_0142.NEF -> 20261017201845.NEF      (no subseconds available)
-DSC_0143.NEF -> 2026101720184537.NEF    (2026-10-17 20:18:45.37)
-DSC_0143.JPG -> 2026101720184537.JPG    (with -e jpg)
+DSC_0142.NEF -> 2026101720184500-Nikon-Z-8.NEF      (no subseconds; 00 is used)
+DSC_0143.NEF -> 2026101720184537-Nikon-Z-8.NEF      (camera naming is default)
+DSC_0143.JPG -> 2026101720184537-Nikon-Z-8.JPG      (with -e jpg)
 ```
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-rename_nef.sh [-n] [-r] [-e EXT] DIRECTORY
+rename_nef.sh [-n] [-r] [-m] [-e EXT] DIRECTORY
   -n       dry run: show what would be renamed, change nothing
   -r       recurse into subdirectories
+  -m       explicitly include the camera Make and Model (default: on)
   -e EXT   rename files with this extension instead of NEF, e.g. -e jpg
            (matches upper and lower case; the extension's case is kept)
 ```
 
 If two shots share the exact same subsecond, a `_1`, `_2`, … suffix is added. Files without a capture time are skipped.
+
+---
+
+### `workflow/rename_dng.sh` — Rename DNG files by date, event, and serial
+
+Renames DNG files to `YYYYMMDD-event-NNNNN.dng`. The event is normalized like `import_photos.sh` (for example, `Detroit Riverwalk` becomes `detroit-riverwalk`). The date comes from EXIF `DateTimeOriginal`, falling back to the file modification date when the tag is missing. Serials continue after the highest existing number for the same date and event.
+
+**Usage** (installed in `/usr/local/bin`):
+```bash
+rename_dng.sh [-n] [-r] -e EVENT DIRECTORY
+  -n       dry run: show what would be renamed, change nothing
+  -r       recurse into subdirectories
+  -e EVENT event name, e.g. "Detroit Riverwalk"
+```
+
+For example, `IMG_1234.dng` might become `20261017-detroit-riverwalk-00008.dng` if `00007` is already present.
 
 ---
 

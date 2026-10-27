@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
 #
-# rename_nef.sh — rename Nikon NEF files to YYYYMMDDHHMMSS<subseconds>.NEF
-#                 using the capture time stored in EXIF. With -e, other
-#                 types (e.g. the JPG of a RAW+JPEG shot) are renamed the
-#                 same way, so a NEF and its JPG end up with the same name.
+# rename_nef.sh — rename Nikon NEF files using capture time stored in EXIF.
+#                 Include camera Make and Model by default. With -e, other
+#                 types (e.g. the JPG of a RAW+JPEG shot) can be renamed too.
 #
-#   20261017201845.NEF   <- 2026-10-17 20:18:45 (no subseconds available)
-#   2026101720184537.NEF <- 2026-10-17 20:18:45.37
+#   2026101720184500-Nikon-Z-8.NEF <- 2026-10-17 20:18:45 (no subseconds)
+#   2026101720184537-Nikon-Z-8.NEF <- 2026-10-17 20:18:45.37
 #
-# Uses DateTimeOriginal + SubSecTimeOriginal. If two shots land on the exact
-# same subsecond (rare, but possible in fast bursts), a suffix _1, _2, ... is
-# added. Matching Lightroom/Photoshop .xmp sidecars are renamed alongside.
+# Uses DateTimeOriginal + SubSecTimeOriginal. Camera labels use Make and Model,
+# with non-alphanumeric characters replaced by hyphens. If two shots land on
+# the exact same name, a suffix _1, _2, ... is added. Matching Lightroom/
+# Photoshop .xmp sidecars are renamed alongside. If camera tags are missing,
+# the timestamp-only name is used with a warning.
 #
 # Usage:
-#   ./rename_nef.sh [-n] [-r] [-e EXT] DIRECTORY
+#   ./rename_nef.sh [-n] [-r] [-m] [-e EXT] DIRECTORY
 #     -n       dry run: show what would be renamed, change nothing
 #     -r       recurse into subdirectories
+#     -m       explicitly include the camera Make and Model (default: on)
 #     -e EXT   rename files with this extension instead of NEF, e.g. -e jpg
 #              (matches upper and lower case; the extension's case is kept)
 #
@@ -29,19 +31,22 @@ set -u
 DRY_RUN=0
 RECURSE=""
 EXT="nef"
+CAMERA_NAME=1
 
 usage() {
-    echo "Usage: $(basename "$0") [-n] [-r] [-e EXT] DIRECTORY" >&2
+    echo "Usage: $(basename "$0") [-n] [-r] [-m] [-e EXT] DIRECTORY" >&2
     echo "  -n      dry run (show changes only)" >&2
     echo "  -r      recurse into subdirectories" >&2
+    echo "  -m      include the camera Make and Model (default: on)" >&2
     echo "  -e EXT  rename this file type instead of NEF (e.g. jpg)" >&2
     exit 1
 }
 
-while getopts ":nre:h" opt; do
+while getopts ":nmre:h" opt; do
     case "$opt" in
         n) DRY_RUN=1 ;;
         r) RECURSE="-r" ;;
+        m) CAMERA_NAME=1 ;;
         e) EXT="${OPTARG#.}" ;;
         *) usage ;;
     esac
@@ -63,9 +68,10 @@ command -v exiftool >/dev/null 2>&1 || {
 renamed=0; skipped=0; failed=0
 planned="|"   # names already claimed in this run (catches collisions during dry runs)
 
-# One exiftool call for the whole directory: path <TAB> datetime <TAB> subsec
+# One exiftool call for the whole directory: path <TAB> datetime <TAB> subsec <TAB> make <TAB> model
 # -f prints "-" for missing tags; -ext matches upper and lower case (.nef/.NEF).
-while IFS=$'\t' read -r src dto subsec; do
+# shellcheck disable=SC2016  # ExifTool expands the metadata placeholders.
+while IFS=$'\t' read -r src dto subsec make model; do
     [ -n "$src" ] || continue
     dir=$(dirname "$src")
     file=$(basename "$src")
@@ -79,7 +85,20 @@ while IFS=$'\t' read -r src dto subsec; do
     fi
 
     subsec=$(printf '%s' "$subsec" | tr -cd '0-9')   # strip spaces / "-" placeholder
+    if [ -z "$subsec" ]; then
+        subsec="00"
+    elif [ "${#subsec}" -eq 1 ]; then
+        subsec="${subsec}0"
+    fi
     base="${dto}${subsec}"
+    if [ "$CAMERA_NAME" -eq 1 ]; then
+        camera=$(printf '%s %s' "$make" "$model" | sed -E 's/[^[:alnum:]]+/-/g; s/^-|-$//g')
+        if [ -n "$camera" ]; then
+            base="${base}-${camera}"
+        else
+            echo "WARN  $src (camera Make/Model unavailable; using timestamp only)" >&2
+        fi
+    fi
 
     # Pick a free target name
     new="$base"
@@ -131,7 +150,7 @@ while IFS=$'\t' read -r src dto subsec; do
     done
 done < <(exiftool -q -q -m -f $RECURSE -ext "$EXT" \
             -d '%Y%m%d%H%M%S' \
-            -p '$Directory/$FileName	$DateTimeOriginal	$SubSecTimeOriginal' \
+            -p '$Directory/$FileName	$DateTimeOriginal	$SubSecTimeOriginal	$Make	$Model' \
             "$DIR" 2>/dev/null | sort)
 
 echo
