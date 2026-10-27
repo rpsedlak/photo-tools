@@ -418,7 +418,7 @@ next_serial() {   # $1 = DNG dir, $2 = prefix; highest existing NNNNN, plus one
 }
 
 file_photo() {    # $1 = NEF/JPG in .incoming, $2 = its final dir; move it (and any sidecar) out
-    local src="$1" nd="$2" base t n=0 side dest_stem="${3:-}"
+    local src="$1" nd="$2" base t n=0 side side_ext side_target dest_stem="${3:-}"
     base=$(basename "$src"); t="$nd/$base"
     if [ -n "$dest_stem" ]; then
         t="$nd/$dest_stem.${base##*.}"
@@ -427,7 +427,13 @@ file_photo() {    # $1 = NEF/JPG in .incoming, $2 = its final dir; move it (and 
     fi
     mv -n "$src" "$t"
     for side in "$src.xmp" "$src.XMP" "${src%.*}.xmp" "${src%.*}.XMP"; do
-        [ -e "$side" ] && mv -n "$side" "$nd/"
+        [ -e "$side" ] || continue
+        side_ext="${side##*.}"
+        case "$side" in
+            "$src".*) side_target="$t.$side_ext" ;;
+            *)        side_target="${t%.*}.$side_ext" ;;
+        esac
+        mv -n "$side" "$side_target"
     done
 }
 
