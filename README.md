@@ -13,7 +13,8 @@ photo-tools/
 │   ├── install.sh            # installs prerequisites, then copies every tool script into /usr/local/bin
 ├── workflow/                 # post-shoot workflow: SD card import and file organization
 │   ├── import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
-│   └── rename_nef.sh         # rename NEFs/JPGs to capture time (used by import_photos.sh)
+│   ├── rename_nef.sh         # rename NEFs/JPGs to capture time (used by import_photos.sh)
+│   └── rename_dng.sh         # rename DNGs by capture date, event and serial
 ├── cloud/                    # cloud backup and sharing
 │   └── upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
 └── tools/                    # dependency management
@@ -176,6 +177,22 @@ rename_nef.sh [-n] [-r] [-m] [-e EXT] DIRECTORY
 ```
 
 If two shots share the exact same subsecond, a `_1`, `_2`, … suffix is added. Files without a capture time are skipped.
+
+---
+
+### `workflow/rename_dng.sh` — Rename DNG files by date, event, and serial
+
+Renames DNG files to `YYYYMMDD-event-NNNNN.dng`. The event is normalized like `import_photos.sh` (for example, `Detroit Riverwalk` becomes `detroit-riverwalk`). The date comes from EXIF `DateTimeOriginal`, falling back to the file modification date when the tag is missing. Serials continue after the highest existing number for the same date and event.
+
+**Usage** (installed in `/usr/local/bin`):
+```bash
+rename_dng.sh [-n] [-r] -e EVENT DIRECTORY
+  -n       dry run: show what would be renamed, change nothing
+  -r       recurse into subdirectories
+  -e EVENT event name, e.g. "Detroit Riverwalk"
+```
+
+For example, `IMG_1234.dng` might become `20261017-detroit-riverwalk-00008.dng` if `00007` is already present.
 
 ---
 
