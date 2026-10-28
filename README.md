@@ -39,9 +39,96 @@ photo-tools/
 
 ---
 
+## Workflow
+
+Use this procedure for each event: import all of its SD cards, rename the DNGs
+once importing is complete, process the photos in Lightroom or a similar
+application, then upload the complete event or date directory to Azure. The
+import script automatically calls `rename_nef.sh` to name NEFs and JPGs; run
+`rename_dng.sh` after all cards have been imported to give the DNGs their final
+date-event-serial names.
+
+```mermaid
+flowchart TD
+    A[SD card 1] --> B[import_photos.sh]
+    C[Additional SD cards] --> B
+    B --> D[Copy and organize files; rename NEFs/JPGs automatically]
+    D --> E[Convert NEFs to DNG]
+    E --> F[Repeat import for every card for this event]
+    F --> G[All cards imported?]
+    G -- No --> B
+    G -- Yes --> H[rename_dng.sh once for each date DNG folder]
+    H --> I[Process photos in Lightroom or similar]
+    I --> J[Select the complete event/date directory]
+    J --> K[upload_azure.sh]
+    K --> L[Azure Blob Storage]
+    K --> M{Any upload failures?}
+    M -- Yes --> N[Correct issue and retry with -R]
+    N --> K
+    M -- No --> O[Workflow complete]
+```
+
+### Procedure
+
+1. **Prepare the archive destination.** Connect the destination disk and set it
+   for this shell, or pass it with `-d` on each import command:
+   ```bash
+   export PHOTO_IMPORT_DEST="/Volumes/photos-01"
+   ```
+2. **Import every SD card for the event.** Use the same event name and
+   destination for each card. Preview and then import the first card:
+   ```bash
+   import_photos.sh -e "Detroit Riverwalk" -n
+   import_photos.sh -e "Detroit Riverwalk" -x
+   ```
+   For another card from the same event, identify its mount point with `-s` and
+   run the import again:
+   ```bash
+   import_photos.sh -e "Detroit Riverwalk" -s /Volumes/BACKUP -x
+   ```
+   Repeat until all cards for the event have been imported. Importing cards
+   separately lets the DNG serials continue from existing files and uses the
+   import manifest to avoid importing the same files twice.
+3. **Rename DNGs after importing all cards.** For each date folder containing
+   DNGs, preview and then run `rename_dng.sh`. This renames them to
+   `YYYYMMDD-event-NNNNN.dng`; the serial continues after the highest existing
+   number for that date and event.
+   ```bash
+   rename_dng.sh -n -e "Detroit Riverwalk" "$PHOTO_IMPORT_DEST/20261017/DNG"
+   rename_dng.sh -e "Detroit Riverwalk" "$PHOTO_IMPORT_DEST/20261017/DNG"
+   ```
+   Repeat for each date's `DNG/` folder for the event.
+4. **Process the photos.** Open the complete event or date directory in
+   Lightroom or another photo application and do your selection, editing, and
+   other post-processing. Keep the directory structure together so the NEF,
+   JPG, DNG, and any generated files remain part of the same event/date archive.
+5. **Upload the complete event/date directory to Azure.** Do this after photo
+   processing. Sign in with `az login` if using your user identity, then set the
+   upload source to the directory containing the entire event/date, including
+   its subfolders—not just `DNG/`, `NEF/`, or `JPG/`. Set `PHOTO_AZ_ACCOUNT`
+   once in your shell profile or pass `-a`.
+   ```bash
+   upload_azure.sh -a ACCOUNT -u detroit-riverwalk="$PHOTO_IMPORT_DEST/20261017"
+   ```
+   Replace the example path with the complete event/date directory you want
+   backed up. The container must already exist and the identity needs the
+   **Storage Blob Data Contributor** role. Uploading skips blobs already present.
+6. **Retry any failures.** The upload reports failed files and keeps their
+   originals in place. Correct the reported issue, then rerun the same upload
+   mapping with `-R`:
+   ```bash
+   upload_azure.sh -a ACCOUNT -u detroit-riverwalk="$PHOTO_IMPORT_DEST/20261017" -R
+   ```
+   Repeat until the upload completes without failures.
+
+See the individual tool sections below for all options, naming behavior,
+prerequisites, and Azure authentication details.
+
 ## Tools
 
-> **Primary workflow:** After a photo shoot, use **`workflow/import_photos.sh`** to process the camera's SD card. It copies files off the card, organizes them by date, renames NEFs and JPGs by capture time, converts them to DNG, and keeps a manifest so nothing is imported twice. `rename_nef.sh` is called automatically by `import_photos.sh` and can also be used on its own.
+> **Primary import tool:** `workflow/import_photos.sh` processes a camera SD
+> card. It calls `rename_nef.sh` automatically; see the [Workflow](#workflow)
+> section for the complete import-to-cloud procedure.
 
 ### `workflow/import_photos.sh` — Import and organize photos from an SD card
 
