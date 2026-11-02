@@ -16,6 +16,7 @@
 # Usage:
 #   ./rename_nef.sh [-n] [-r] [-m] [-v] [-e EXT] DIRECTORY
 #     -n       dry run: show what would be renamed, change nothing
+#              (over 500 files: warns it can take several minutes and asks to continue)
 #     -r       recurse into subdirectories
 #     -m       explicitly include the camera Make and Model (default: on)
 #     -v       verbose: show the settings and, for each file, the metadata
@@ -37,6 +38,22 @@ CAMERA_NAME=1
 VERBOSE=0
 
 vlog() { [ "$VERBOSE" -eq 1 ] && echo "verbose: $*" >&2; return 0; }
+
+# A dry run still reads every file's metadata, so warn before a big one.
+# Asks first when run from a terminal; otherwise warns and carries on.
+DRY_RUN_WARN_FILES=500
+confirm_large_dry_run() {   # $1 = number of files
+    [ "$DRY_RUN" -eq 1 ] && [ "$1" -gt "$DRY_RUN_WARN_FILES" ] || return 0
+    echo "Warning: $1 files found. A dry run can take several minutes to complete." >&2
+    if [ -t 0 ]; then
+        printf 'Continue? [y/N] ' >&2
+        read -r reply
+        case "$reply" in
+            [yY]|[yY][eE][sS]) ;;
+            *) echo "Cancelled — nothing was changed." >&2; exit 0 ;;
+        esac
+    fi
+}
 
 usage() {
     echo "Usage: $(basename "$0") [-n] [-r] [-m] [-v] [-e EXT] DIRECTORY" >&2
@@ -73,6 +90,11 @@ command -v exiftool >/dev/null 2>&1 || {
 }
 
 vlog "directory: $DIR; extension: $EXT; recurse: $([ -n "$RECURSE" ] && echo yes || echo no); camera name: $([ "$CAMERA_NAME" -eq 1 ] && echo yes || echo no); dry run: $([ "$DRY_RUN" -eq 1 ] && echo yes || echo no)"
+if [ "$DRY_RUN" -eq 1 ]; then
+    if [ -n "$RECURSE" ]; then depth=""; else depth="-maxdepth 1"; fi
+    # shellcheck disable=SC2086  # $depth is intentionally word-split.
+    confirm_large_dry_run "$(find "$DIR" $depth -type f -iname "*.$EXT" | wc -l | tr -d ' ')"
+fi
 vlog "reading capture times with exiftool..."
 
 renamed=0; skipped=0; failed=0; found=0
