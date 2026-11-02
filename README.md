@@ -31,6 +31,7 @@ photo-tools/
 
 ### Adding new tools
 
+- Give each tool a `-v` option that shows what it is doing; it is off by default.
 - Put each tool in a top-level directory named for its purpose (e.g. `workflow/`). Create a new directory when a tool doesn't fit an existing one.
 - `install/install.sh` picks up every `*.sh` one level down (`<tool-dir>/<name>.sh`) automatically. Script names must be unique across all tool directories, since they're all installed into one folder.
 - Keep scripts that call each other in the same directory — `import_photos.sh` finds `rename_nef.sh` by looking next to itself.
@@ -165,6 +166,8 @@ Options:
                (identical photos are still never converted twice)
   -x           eject the card when finished
   -n           dry run: show what would happen, change nothing
+  -v           verbose: show the settings and what is done with each file
+               (default: off; not the same as -V)
 
 Environment overrides:
   PHOTO_IMPORT_DEST  destination root (same as -d; -d overrides it)
@@ -241,6 +244,7 @@ These are the fields Lightroom shows as Copyright, Creator and Copyright Status.
 
 **Tips:**
 - Run with `-n` first to preview.
+- Add `-v` to see what the script is doing: the settings in use, why each card file is skipped or imported, each copy, rename (the `rename_nef.sh` output is shown too), conversion and filing step. These lines start with `verbose:` and go to stderr.
 - Long steps show a live status line: files done out of the total, plus amount copied, elapsed time and estimated time left while copying and converting. When the output is redirected to a log file, a progress line is written every 10% instead.
 - If an import is interrupted, re-run the same command to finish it.
 - Use `-V` for byte-for-byte verification (slower; worthwhile with an unreliable card reader).
@@ -260,10 +264,12 @@ DSC_0143.JPG -> 2026101720184537-Nikon-Z-8.JPG      (with -e jpg)
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-rename_nef.sh [-n] [-r] [-m] [-e EXT] DIRECTORY
+rename_nef.sh [-n] [-r] [-m] [-v] [-e EXT] DIRECTORY
   -n       dry run: show what would be renamed, change nothing
   -r       recurse into subdirectories
   -m       explicitly include the camera Make and Model (default: on)
+  -v       verbose: show the metadata each file is named from and why files are
+           skipped (default: off)
   -e EXT   rename files with this extension instead of NEF, e.g. -e jpg
            (matches upper and lower case; the extension's case is kept)
 ```
@@ -278,9 +284,11 @@ Renames DNG files to `YYYYMMDD-event-NNNNN.dng`. The event is normalized like `i
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-rename_dng.sh [-n] [-r] -e EVENT DIRECTORY
+rename_dng.sh [-n] [-r] [-v] -e EVENT DIRECTORY
   -n       dry run: show what would be renamed, change nothing
   -r       recurse into subdirectories
+  -v       verbose: show where each file's date came from and why files are
+           skipped (default: off)
   -e EVENT event name, e.g. "Detroit Riverwalk"
 ```
 
@@ -512,6 +520,8 @@ tools/prereqs.sh           # install anything missing
 tools/update.sh             # install missing prerequisites and update Homebrew-managed dependencies
 ```
 
+Add `-v` to `prereqs.sh`, `update.sh` or `install.sh` for verbose output (how each tool is looked up and which commands are run).
+
 - `tools/update.sh` upgrades only dependencies managed by Homebrew; macOS-provided `jq` and manually installed DNG Converter copies are left unchanged. After installation, run `update.sh` from your `PATH`.
 - Adobe's DNG Converter installer asks for your password.
 - If exiftool is installed but not on your `PATH`, the script says so and shows the line to add to `~/.zprofile`.
@@ -525,6 +535,7 @@ tools/update.sh             # install missing prerequisites and update Homebrew-
 ```bash
 install/install.sh -n      # preview: report missing prerequisites, show what will be installed
 install/install.sh         # install
+install/install.sh -v      # install, showing each step (verbose)
 ```
 
 The installer:

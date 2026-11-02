@@ -14,10 +14,12 @@
 # the timestamp-only name is used with a warning.
 #
 # Usage:
-#   ./rename_nef.sh [-n] [-r] [-m] [-e EXT] DIRECTORY
+#   ./rename_nef.sh [-n] [-r] [-m] [-v] [-e EXT] DIRECTORY
 #     -n       dry run: show what would be renamed, change nothing
 #     -r       recurse into subdirectories
 #     -m       explicitly include the camera Make and Model (default: on)
+#     -v       verbose: show the settings and, for each file, the metadata
+#              it was named from and why it was skipped (default: off)
 #     -e EXT   rename files with this extension instead of NEF, e.g. -e jpg
 #              (matches upper and lower case; the extension's case is kept)
 #
@@ -32,21 +34,26 @@ DRY_RUN=0
 RECURSE=""
 EXT="nef"
 CAMERA_NAME=1
+VERBOSE=0
+
+vlog() { [ "$VERBOSE" -eq 1 ] && echo "verbose: $*" >&2; return 0; }
 
 usage() {
-    echo "Usage: $(basename "$0") [-n] [-r] [-m] [-e EXT] DIRECTORY" >&2
+    echo "Usage: $(basename "$0") [-n] [-r] [-m] [-v] [-e EXT] DIRECTORY" >&2
     echo "  -n      dry run (show changes only)" >&2
     echo "  -r      recurse into subdirectories" >&2
     echo "  -m      include the camera Make and Model (default: on)" >&2
+    echo "  -v      verbose: show what is happening (default: off)" >&2
     echo "  -e EXT  rename this file type instead of NEF (e.g. jpg)" >&2
     exit 1
 }
 
-while getopts ":nmre:h" opt; do
+while getopts ":nmrve:h" opt; do
     case "$opt" in
         n) DRY_RUN=1 ;;
         r) RECURSE="-r" ;;
         m) CAMERA_NAME=1 ;;
+        v) VERBOSE=1 ;;
         e) EXT="${OPTARG#.}" ;;
         *) usage ;;
     esac
@@ -65,7 +72,10 @@ command -v exiftool >/dev/null 2>&1 || {
     exit 1
 }
 
-renamed=0; skipped=0; failed=0
+vlog "directory: $DIR; extension: $EXT; recurse: $([ -n "$RECURSE" ] && echo yes || echo no); camera name: $([ "$CAMERA_NAME" -eq 1 ] && echo yes || echo no); dry run: $([ "$DRY_RUN" -eq 1 ] && echo yes || echo no)"
+vlog "reading capture times with exiftool..."
+
+renamed=0; skipped=0; failed=0; found=0
 planned="|"   # names already claimed in this run (catches collisions during dry runs)
 
 # One exiftool call for the whole directory: path <TAB> datetime <TAB> subsec <TAB> make <TAB> model
@@ -73,6 +83,8 @@ planned="|"   # names already claimed in this run (catches collisions during dry
 # shellcheck disable=SC2016  # ExifTool expands the metadata placeholders.
 while IFS=$'\t' read -r src dto subsec make model; do
     [ -n "$src" ] || continue
+    found=$((found + 1))
+    vlog "found $src (DateTimeOriginal=$dto, SubSecTimeOriginal=$subsec, Make=$make, Model=$model)"
     dir=$(dirname "$src")
     file=$(basename "$src")
     ext="${file##*.}"
@@ -112,10 +124,12 @@ while IFS=$'\t' read -r src dto subsec make model; do
             [ -e "$target" ] || break ;;
         esac
         n=$((n + 1))
+        vlog "$target is already taken; trying ${base}_$n"
         new="${base}_$n"
     done
 
     if [ "$target" = "$src" ]; then
+        vlog "$src is already correctly named; skipping"
         skipped=$((skipped + 1))
         continue
     fi
@@ -137,6 +151,7 @@ while IFS=$'\t' read -r src dto subsec make model; do
     # Carry along sidecars: IMG.xmp / IMG.XMP and IMG.NEF.xmp styles
     for side in "$dir/$stem.xmp" "$dir/$stem.XMP" "$src.xmp" "$src.XMP"; do
         [ -e "$side" ] || continue
+        vlog "sidecar $side goes with $src"
         side_ext="${side##*.}"
         case "$side" in
             "$src".*) side_target="$target.$side_ext" ;;
@@ -153,6 +168,7 @@ done < <(exiftool -q -q -m -f $RECURSE -ext "$EXT" \
             -p '$Directory/$FileName	$DateTimeOriginal	$SubSecTimeOriginal	$Make	$Model' \
             "$DIR" 2>/dev/null | sort)
 
+vlog "examined $found file(s)"
 echo
 if [ "$DRY_RUN" -eq 1 ]; then
     echo "Dry run complete — nothing was changed."
