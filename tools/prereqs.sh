@@ -13,8 +13,10 @@
 # The DNG Converter cask runs Adobe's installer, which asks for your password.
 #
 # Usage:
-#   tools/prereqs.sh [-n]
+#   tools/prereqs.sh [-n] [-v]
 #     -n   check only: report what's missing, install nothing
+#     -v   verbose: show how each tool is looked for and the install commands
+#          run (default: off)
 #
 # Exit status: 0 when everything is ready, 1 otherwise.
 # Works with the stock macOS bash 3.2.
@@ -22,13 +24,17 @@
 set -u
 
 CHECK_ONLY=0
+VERBOSE=0
 DNG_CONVERTER="${DNG_CONVERTER:-/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter}"
+
+vlog() { [ "$VERBOSE" -eq 1 ] && echo "verbose: $*" >&2; return 0; }
 
 usage() { sed -n '/^# Usage:/,/^# Exit status/p' "$0" | sed -e 's/^# \{0,1\}//' -e '$d' >&2; exit 1; }
 
-while getopts ":nh" opt; do
+while getopts ":nvh" opt; do
     case "$opt" in
         n) CHECK_ONLY=1 ;;
+        v) VERBOSE=1 ;;
         *) usage ;;
     esac
 done
@@ -44,6 +50,8 @@ if [ -z "$BREW" ]; then
         [ -x "$b" ] && { BREW="$b"; break; }
     done
 fi
+
+vlog "check only: $CHECK_ONLY; Homebrew: ${BREW:-<not found>}; DNG converter path: $DNG_CONVERTER"
 
 problems=0
 need_brew=""
@@ -62,6 +70,7 @@ brew_install() {
         return 1
     fi
     echo "Installing $1 with Homebrew..."
+    vlog "running: $BREW install $2"
     # shellcheck disable=SC2086
     "$BREW" install $2
 }
@@ -76,6 +85,7 @@ fi
 # ---------- exiftool ---------------------------------------------------------
 check_exiftool() {
     local p
+    vlog "looking for exiftool on PATH"
     p=$(command -v exiftool 2>/dev/null) || return 1
     ok "exiftool $(exiftool -ver 2>/dev/null)  ($p)"
 }
@@ -97,6 +107,7 @@ fi
 
 # ---------- Adobe DNG Converter ----------------------------------------------
 check_dng() {
+    vlog "looking for an executable at $DNG_CONVERTER"
     [ -x "$DNG_CONVERTER" ] || return 1
     ok "Adobe DNG Converter  ($DNG_CONVERTER)"
 }
@@ -115,6 +126,7 @@ fi
 # ---------- Azure upload tools (upload_azure.sh) -----------------------------
 for t in "az:azure-cli:Azure CLI" "azcopy:azcopy:azcopy" "jq:jq:jq"; do
     cmd="${t%%:*}"; rest="${t#*:}"; formula="${rest%%:*}"; label="${rest#*:}"
+    vlog "looking for $cmd on PATH (Homebrew formula $formula)"
     if p=$(command -v "$cmd" 2>/dev/null); then
         ok "$label  ($p)"
     else

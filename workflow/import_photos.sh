@@ -79,6 +79,8 @@
 #                (identical photos are still never converted twice)
 #   -x           eject the card when finished
 #   -n           dry run: show what would happen, change nothing
+#   -v           verbose: show the settings and what is done with each file
+#                (default: off; not the same as -V)
 #
 # Environment overrides:
 #   PHOTO_IMPORT_DEST  destination root (same as -d; -d overrides it)
@@ -114,11 +116,16 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 RENAME_NEF="$SCRIPT_DIR/rename_nef.sh"
 
 EVENT_RAW=""; SOURCE=""; FORCE_DATE=""; VERIFY_BYTES=0; SKIP_DNG=0; CAMERA_NAME=1
-TODAY_ONLY=0; FORCE=0; EJECT=0; DRY_RUN=0
+TODAY_ONLY=0; FORCE=0; EJECT=0; DRY_RUN=0; VERBOSE=0
 
 usage() { sed -n '/^# Usage:/,/^# Environment/p' "$0" | sed -e 's/^# \{0,1\}//' -e '$d' >&2; exit 1; }
 die()   { echo "Error: $*" >&2; exit 1; }
 log()   { echo "$*"; }
+vlog()  {   # -v only: to stderr, keeping any status line on the screen tidy
+    [ "$VERBOSE" -eq 1 ] || return 0
+    if [ "${PROG_TTY:-0}" -eq 1 ]; then printf '\r\033[K' >&2; fi
+    printf 'verbose: %s\n' "$*" >&2
+}
 
 # Extract the long option without interpreting option values as options.
 args=()
@@ -135,7 +142,7 @@ while [ $# -gt 0 ]; do
 done
 set -- "${args[@]}"
 
-while getopts ":e:c:s:d:D:VkzFmxnh" opt; do
+while getopts ":e:c:s:d:D:VkzFmxnvh" opt; do
     case "$opt" in
         e) EVENT_RAW="$OPTARG" ;;
         c) COPYRIGHT_OWNER="$OPTARG" ;;
@@ -149,6 +156,7 @@ while getopts ":e:c:s:d:D:VkzFmxnh" opt; do
         F) FORCE=1 ;;
         x) EJECT=1 ;;
         n) DRY_RUN=1 ;;
+        v) VERBOSE=1 ;;
         *) usage ;;
     esac
 done
@@ -254,10 +262,13 @@ if [ "$SKIP_DNG" -eq 0 ]; then
     fi
 fi
 log ""
+vlog "settings: verify = $([ "$VERIFY_BYTES" -eq 1 ] && echo byte-for-byte || echo size); camera name = $([ "$CAMERA_NAME" -eq 1 ] && echo yes || echo no); skip DNG = $SKIP_DNG; compress NEF = $COMPRESS_NEF; force = $FORCE; today only = $TODAY_ONLY; forced date = ${FORCE_DATE:-<none>}; eject = $EJECT; dry run = $DRY_RUN"
+vlog "paths: rename_nef = $RENAME_NEF; DNG converter = $DNG_CONVERTER ($DNG_OPTS); manifest = $MANIFEST; temp folder = $WORK"
 
 # ---------- 1. plan: what is new on the card, and which date is it? -----------
 scan="$SOURCE"; [ -d "$SOURCE/DCIM" ] && scan="$SOURCE/DCIM"
 find "$scan" -type f ! -name '.*' ! -path '*/.*' > "$WORK/files"
+vlog "scanning $scan: $(wc -l < "$WORK/files" | tr -d ' ') file(s) found"
 
 # Capture time for every file in one exiftool pass: path, YYYYMMDDHHMMSS, subsec.
 # -progress reports "[n/total]" on stderr, which drives the status line.
@@ -300,14 +311,19 @@ while IFS=$'\t' read -r f dto sub; do
         *)  key="$name	$size	$mtime" ;;
     esac
     capture_date="${dto:0:8}"; is_ymd "$capture_date" || capture_date=$(epoch_ymd "$mtime")
-    [ "$TODAY_ONLY" -eq 0 ] || [ "$capture_date" = "$TODAY_DATE" ] || continue
+    if [ "$TODAY_ONLY" -eq 1 ] && [ "$capture_date" != "$TODAY_DATE" ]; then
+        vlog "skip $f: captured $capture_date, not today"
+        continue
+    fi
     if [ "$FORCE" -eq 0 ] && grep -qxF "$key" "$MANIFEST" 2>/dev/null; then
+        vlog "skip $f: already in the manifest"
         already=$((already + 1)); continue
     fi
 
     if [ -n "$FORCE_DATE" ]; then d="$FORCE_DATE"
     else d="$capture_date"
     fi
+    vlog "new $f: capture date $capture_date, filed under $d/$(ext_of "$f")/"
     TODO+=("$f"); TODO_KEY+=("$key"); TODO_DATE+=("$d"); TODO_SIZE+=("$size")
     total_bytes=$((total_bytes + size))
     case "$name" in *.[Nn][Ee][Ff]) nef_bytes=$((nef_bytes + size)) ;; esac
@@ -344,6 +360,7 @@ fi
 avail_kb=$(df -Pk "$DEST_ROOT" | awk 'NR==2 {print $4}')
 need_bytes=$(( total_bytes + (SKIP_DNG ? 0 : nef_bytes) + (SKIP_DNG || ! COMPRESS_NEF ? 0 : nef_bytes) ))
 need_kb=$(( need_bytes / 1024 + need_bytes / 102400 ))
+vlog "free space on $DEST_ROOT: need about $((need_kb / 1024)) MB, have $((avail_kb / 1024)) MB"
 [ "$need_kb" -le "$avail_kb" ] || \
     die "not enough space on $DEST_ROOT: need $((need_kb / 1024)) MB, have $((avail_kb / 1024)) MB."
 
@@ -387,12 +404,15 @@ while [ $i -lt ${#TODO[@]} ]; do
     target="$dir/$name"; n=0; ok=0
     while [ -e "$target" ]; do
         if cmp -s "$f" "$target"; then ok=2; break; fi
+        vlog "$target already exists with different contents; trying another name"
         n=$((n + 1)); target="$dir/${stem}_$n$sfx"
     done
     if [ $ok -eq 2 ]; then
+        vlog "$f is identical to $target; not copied"
         printf '%s\n' "$key" >> "$MANIFEST"; already=$((already + 1)); continue
     fi
 
+    vlog "copying $f -> $target ($([ "$VERIFY_BYTES" -eq 1 ] && echo "byte-for-byte" || echo "size") check)"
     if cp -p "$f" "$target" 2>/dev/null; then
         if [ "$VERIFY_BYTES" -eq 1 ]; then
             cmp -s "$f" "$target" && ok=1
@@ -401,6 +421,7 @@ while [ $i -lt ${#TODO[@]} ]; do
         fi
     fi
     if [ $ok -eq 1 ]; then
+        vlog "verified $target; added to the manifest"
         printf '%s\n' "$key" >> "$MANIFEST"
         copied=$((copied + 1))
         [ "$ext" = "NEF" ] && nef_new=$((nef_new + 1))
@@ -446,6 +467,7 @@ file_photo() {    # $1 = NEF/JPG in .incoming, $2 = its final dir; move it (and 
     else
         while [ -e "$t" ]; do n=$((n + 1)); t="$nd/${base%.*}_$n.${base##*.}"; done
     fi
+    vlog "filing $src -> $t"
     mv -n "$src" "$t"
     for side in "$src.xmp" "$src.XMP" "${src%.*}.xmp" "${src%.*}.XMP"; do
         [ -e "$side" ] || continue
@@ -454,6 +476,7 @@ file_photo() {    # $1 = NEF/JPG in .incoming, $2 = its final dir; move it (and 
             "$src".*) side_target="$t.$side_ext" ;;
             *)        side_target="${t%.*}.$side_ext" ;;
         esac
+        vlog "filing sidecar $side -> $side_target"
         mv -n "$side" "$side_target"
     done
 }
@@ -478,11 +501,16 @@ is_duplicate() {  # $1 = renamed NEF/JPG in .incoming, $2 = its final dir
 run_rename() {    # $1 = .incoming dir, $2 = file count, then any rename_nef.sh options
     local inc="$1" total="$2" n=0 line
     shift 2
+    [ "$VERBOSE" -eq 0 ] || set -- -v "$@"
+    vlog "running: bash $RENAME_NEF $* $inc"
     bash "$RENAME_NEF" "$@" "$inc" 2>&1 | while IFS= read -r line; do
         case "$line" in
-            "OK "*)       n=$((n + 1)); progress $(( n * 100 / total )) "          renaming... $n/$total" ;;
+            "OK "*)       n=$((n + 1))
+                          if [ "$VERBOSE" -eq 1 ]; then progress_end; echo "          $line"
+                          else progress $(( n * 100 / total )) "          renaming... $n/$total"; fi ;;
             FAIL*|SKIP*)  progress_end; echo "          $line" >&2 ;;
             Renamed:*)    progress_end; echo "          $line" ;;
+            *)            [ "$VERBOSE" -eq 0 ] || [ -z "$line" ] || { progress_end; echo "          $line"; } ;;
         esac
     done
 }
@@ -491,6 +519,7 @@ restore_nef_zip() { # $1 = YYYYMMDD; unpack an earlier NEF.zip so new NEFs are c
     local day="$1" dir="$DEST_ROOT/$day"
     [ "$COMPRESS_NEF" -eq 1 ] && [ -f "$dir/NEF.zip" ] || return 0
     log "$day: unpacking NEF.zip..."
+    vlog "unzip -q -n $dir/NEF.zip -d $dir"
     unzip -q -n "$dir/NEF.zip" -d "$dir" && return 0
     echo "FAIL  could not unpack $day/NEF.zip" >&2
     return 1
@@ -501,9 +530,11 @@ compress_nef() {  # $1 = YYYYMMDD; zip NEF/ into NEF.zip, test it, then remove N
     [ -d "$dir/NEF" ] && [ ! -d "$dir/NEF/.incoming" ] || return 0   # nothing, or NEFs still waiting
     [ -n "$(find "$dir/NEF" -type f | head -n 1)" ] || return 0
     log "$day: compressing NEF/ to NEF.zip..."
+    vlog "zipping $dir/NEF to $dir/$tmp, testing it, then moving it to $dir/NEF.zip"
     rm -f "$dir/$tmp"
     if (cd "$dir" && zip -r -q "$tmp" NEF) && unzip -tq "$dir/$tmp" >/dev/null 2>&1 \
        && mv -f "$dir/$tmp" "$dir/NEF.zip"; then
+        vlog "$dir/NEF.zip tested OK; removing $dir/NEF"
         rm -rf "$dir/NEF"
         nef_zipped=$((nef_zipped + 1))
     else
@@ -579,6 +610,7 @@ process_date() {  # $1 = YYYYMMDD
         t0=$SECONDS; j=0
         while [ $j -lt ${#nefs[@]} ]; do         # one converter launch per batch
             # Run in the background and count the DNGs as they appear.
+            vlog "converting NEFs $((j + 1))-$((j + DNG_BATCH < ${#nefs[@]} ? j + DNG_BATCH : ${#nefs[@]})) of ${#nefs[@]}: $DNG_CONVERTER $DNG_OPTS -d $din"
             # shellcheck disable=SC2086
             "$DNG_CONVERTER" $DNG_OPTS -d "$din" "${nefs[@]:$j:$DNG_BATCH}" >/dev/null 2>&1 &
             CONV_PID=$!
@@ -607,6 +639,7 @@ process_date() {  # $1 = YYYYMMDD
                     [ -e "$c" ] || continue
                     dt=$(awk -F'\t' -v n="$base" '$1 == n {print $2; exit}' "$WORK/dates")
                     is_ymd "$dt" || dt="$day"
+                    vlog "copyright for $(basename "$c"): © ${dt:0:4} $COPYRIGHT_OWNER"
                     [ -s "$WORK/rights.args" ] && echo "-execute" >> "$WORK/rights.args"
                     printf '%s\n' "-MWG:Copyright=© ${dt:0:4} $COPYRIGHT_OWNER" "$c" \
                         >> "$WORK/rights.args"
@@ -657,6 +690,7 @@ process_date() {  # $1 = YYYYMMDD
                 out=$(printf '%s/%s-%05d.dng' "$dd" "$prefix" "$serial")
                 while [ -e "$out" ]; do serial=$((serial + 1)); out=$(printf '%s/%s-%05d.dng' "$dd" "$prefix" "$serial"); done
             fi
+            vlog "filing DNG $dng -> $out"
             if mv -n "$dng" "$out" && [ -e "$out" ] && [ ! -e "$dng" ]; then
                 serial=$((serial + 1)); converted=$((converted + 1))
                 if [ "$CAMERA_NAME" -eq 1 ]; then
@@ -706,6 +740,7 @@ if [ "$failed" -gt 0 ] || [ "$conv_failed" -gt 0 ]; then
 fi
 
 if [ "$EJECT" -eq 1 ]; then
+    vlog "ejecting $SOURCE"
     diskutil eject "$SOURCE" >/dev/null 2>&1 && log "Ejected $SOURCE" || log "Could not eject $SOURCE — eject it in Finder."
 fi
 exit 0

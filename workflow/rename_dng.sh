@@ -7,9 +7,11 @@
 # Serials continue after the highest existing number for that date and event.
 #
 # Usage:
-#   ./rename_dng.sh [-n] [-r] -e EVENT DIRECTORY
+#   ./rename_dng.sh [-n] [-r] [-v] -e EVENT DIRECTORY
 #     -n       dry run: show what would be renamed, change nothing
 #     -r       recurse into subdirectories
+#     -v       verbose: show the settings and, for each file, where its date
+#              came from and why it was skipped (default: off)
 #     -e EVENT event name, e.g. "Detroit Riverwalk" -> detroit-riverwalk
 #
 # Requires exiftool:  brew install exiftool   (macOS)
@@ -21,22 +23,27 @@ set -u
 DRY_RUN=0
 RECURSE=""
 EVENT_RAW=""
+VERBOSE=0
+
+vlog() { [ "$VERBOSE" -eq 1 ] && echo "verbose: $*" >&2; return 0; }
 
 usage() {
-    echo "Usage: $(basename "$0") [-n] [-r] -e EVENT DIRECTORY" >&2
+    echo "Usage: $(basename "$0") [-n] [-r] [-v] -e EVENT DIRECTORY" >&2
     echo "  -n       dry run (show changes only)" >&2
     echo "  -r       recurse into subdirectories" >&2
+    echo "  -v       verbose: show what is happening (default: off)" >&2
     echo "  -e EVENT event name, e.g. \"Detroit Riverwalk\"" >&2
     exit 1
 }
 
 die() { echo "Error: $*" >&2; exit 1; }
 
-while getopts ":ne:rh" opt; do
+while getopts ":ne:rvh" opt; do
     case "$opt" in
         n) DRY_RUN=1 ;;
         e) EVENT_RAW="$OPTARG" ;;
         r) RECURSE="-r" ;;
+        v) VERBOSE=1 ;;
         *) usage ;;
     esac
 done
@@ -73,14 +80,20 @@ next_serial() {
     echo $((max + 1))
 }
 
-renamed=0; skipped=0; failed=0
+vlog "directory: $DIR; event: $EVENT_RAW -> $EVENT; recurse: $([ -n "$RECURSE" ] && echo yes || echo no); dry run: $([ "$DRY_RUN" -eq 1 ] && echo yes || echo no)"
+vlog "reading capture dates with exiftool..."
+
+renamed=0; skipped=0; failed=0; found=0
 planned="|"
 
 # ExifTool reports '-' for missing DateTimeOriginal; use the legacy file-date fallback.
 # shellcheck disable=SC2016  # ExifTool expands the metadata placeholders.
 while IFS=$'\t' read -r src date; do
     [ -n "$src" ] || continue
+    found=$((found + 1))
+    vlog "found $src (DateTimeOriginal=$date)"
     if ! is_ymd "$date"; then
+        vlog "$src has no DateTimeOriginal; using its modification date"
         mtime=$(file_epoch "$src") || { echo "SKIP  $src (cannot read modification date)" >&2; skipped=$((skipped + 1)); continue; }
         date=$(epoch_ymd "$mtime") || { echo "SKIP  $src (cannot determine date)" >&2; skipped=$((skipped + 1)); continue; }
     fi
@@ -103,6 +116,7 @@ while IFS=$'\t' read -r src date; do
     done
     case "$stem" in
         "$prefix"-[0-9][0-9][0-9][0-9][0-9])
+            vlog "$src is already named for $date and $EVENT; skipping"
             skipped=$((skipped + 1))
             continue ;;
     esac
@@ -129,6 +143,7 @@ while IFS=$'\t' read -r src date; do
             fi
         done
         [ "$collision" -eq 0 ] && break
+        vlog "$new.dng (or one of its sidecars) is already taken; trying the next serial"
         serial=$((serial + 1))
     done
     planned="${planned}${target}|"
@@ -166,6 +181,7 @@ while IFS=$'\t' read -r src date; do
 done < <(exiftool -q -q -m -f $RECURSE -ext dng -d '%Y%m%d' \
             -p '$Directory/$FileName	$DateTimeOriginal' "$DIR" 2>/dev/null | sort)
 
+vlog "examined $found file(s)"
 echo
 if [ "$DRY_RUN" -eq 1 ]; then
     echo "Dry run complete — nothing was changed."
