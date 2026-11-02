@@ -56,6 +56,16 @@
 #                 $PHOTO_AZ_CERT_PATH, else $AZURE_CLIENT_CERTIFICATE_PATH)
 #   -A sas|oauth  how azcopy is authorized: a SAS created by this script, or
 #                 azcopy signing in itself (default: $PHOTO_AZ_TRANSFER, else sas)
+#   -c ask|yes|no what to do when a container does not exist in the account
+#                 (default: $PHOTO_AZ_CREATE_CONTAINERS, else ask):
+#                   ask   ask before creating each missing container (needs a
+#                         terminal; without one the script stops instead)
+#                   yes   create missing containers without asking
+#                   no    never create containers; stop if one is missing
+#                 New containers are private (no public access). With -n
+#                 nothing is created or asked; the output says which
+#                 containers would be created. Creating a container needs the
+#                 same 'Storage Blob Data Contributor' role. Not used with -R.
 #   -t HOURS      SAS lifetime in hours, 1-167 (default 24)
 #   -T TIER       blob tier: Hot, Cool, Cold or Archive (default: the account's)
 #   -O            replace a blob when the local file is newer
@@ -79,6 +89,7 @@
 #   PHOTO_AZ_KEYCHAIN_SERVICE  Keychain item holding the secret, stored with the
 #                           app ID as its account (default: photo-tools-azure)
 #   PHOTO_AZ_TRANSFER       sas or oauth (same as -A)
+#   PHOTO_AZ_CREATE_CONTAINERS  ask, yes or no (same as -c)
 #   PHOTO_UPLOAD_RETRY      retry folder root (same as -r)
 #   PHOTO_UPLOAD_LOGS       where run reports and azcopy logs go
 #                           (default: ~/.photo-tools/upload-runs)
@@ -86,7 +97,8 @@
 #   Options given on the command line win over these.
 #
 # Exit status: 0 all files uploaded (or already there), 2 some files failed
-# and were moved to the retry folder, 1 nothing was uploaded (error).
+# and were moved to the retry folder, 1 nothing was uploaded (error, or a
+# missing container was not created).
 #
 # Requires: Azure CLI (brew install azure-cli), azcopy (brew install azcopy),
 # jq (included with macOS 15 and later; otherwise brew install jq).
@@ -102,6 +114,7 @@ TENANT_ID="${PHOTO_AZ_TENANT_ID:-${AZURE_TENANT_ID:-}}"
 CERT_PATH="${PHOTO_AZ_CERT_PATH:-${AZURE_CLIENT_CERTIFICATE_PATH:-}}"
 KEYCHAIN_SERVICE="${PHOTO_AZ_KEYCHAIN_SERVICE:-photo-tools-azure}"
 TRANSFER="${PHOTO_AZ_TRANSFER:-sas}"
+CREATE="${PHOTO_AZ_CREATE_CONTAINERS:-ask}"
 RETRY_ROOT="${PHOTO_UPLOAD_RETRY:-}"
 RUNS_ROOT="${PHOTO_UPLOAD_LOGS:-$HOME/.photo-tools/upload-runs}"
 case "${PHOTO_UPLOAD_VERBOSE:-0}" in 1|[Yy]*|[Tt]rue) VERBOSE=1 ;; *) VERBOSE=0 ;; esac
@@ -156,7 +169,7 @@ trace() {         # run a command; with -v log it (secrets hidden), its exit cod
 NL='
 '
 
-while getopts ":a:u:m:p:r:RI:i:z:K:A:t:T:Onvh" opt; do
+while getopts ":a:u:m:p:r:RI:i:z:K:A:c:t:T:Onvh" opt; do
     OPTS_GIVEN="$OPTS_GIVEN$opt"
     case "$opt" in
         a) ACCOUNT="$OPTARG" ;;
@@ -171,6 +184,7 @@ while getopts ":a:u:m:p:r:RI:i:z:K:A:t:T:Onvh" opt; do
         z) TENANT_ID="$OPTARG" ;;
         K) CERT_PATH="$OPTARG" ;;
         A) TRANSFER="$OPTARG" ;;
+        c) CREATE="$OPTARG" ;;
         t) SAS_HOURS="$OPTARG" ;;
         T) TIER="$OPTARG" ;;
         O) OVERWRITE=1 ;;
@@ -225,6 +239,8 @@ case "$ACCOUNT" in *[!a-z0-9]*) die "storage account '$ACCOUNT' may only contain
 
 case "$AUTH" in user|sp) ;; *) die "-I must be 'user' or 'sp', got '$AUTH'." ;; esac
 case "$TRANSFER" in sas|oauth) ;; *) die "-A must be 'sas' or 'oauth', got '$TRANSFER'." ;; esac
+CREATE=$(printf '%s' "$CREATE" | tr '[:upper:]' '[:lower:]')
+case "$CREATE" in ask|yes|no) ;; *) die "-c must be 'ask', 'yes' or 'no', got '$CREATE'." ;; esac
 case "$SAS_HOURS" in ''|*[!0-9]*) die "-t must be a whole number of hours, got '$SAS_HOURS'." ;; esac
 [ "$SAS_HOURS" -ge 1 ] && [ "$SAS_HOURS" -le 167 ] || die "-t must be 1-167 hours (a user delegation SAS lasts at most 7 days)."
 case "$(printf '%s' "$TIER" | tr '[:upper:]' '[:lower:]')" in
@@ -312,6 +328,7 @@ if [ "$VERBOSE" -eq 1 ]; then
         vlog "setting secret    = $(if [ -n "${PHOTO_AZ_CLIENT_SECRET:-}" ]; then echo "set in \$PHOTO_AZ_CLIENT_SECRET"; elif [ -n "${AZURE_CLIENT_SECRET:-}" ]; then echo "set in \$AZURE_CLIENT_SECRET"; else echo "not in the environment (Keychain item '$KEYCHAIN_SERVICE' is tried)"; fi)"
     fi
     vlog "setting transfer  = $TRANSFER  [$(src_of A PHOTO_AZ_TRANSFER)]"
+    vlog "setting create    = $CREATE  [$(src_of c PHOTO_AZ_CREATE_CONTAINERS)]"
     vlog "setting prefix    = ${PREFIX:-<none>}; SAS hours = $SAS_HOURS; tier = ${TIER:-<account default>}; overwrite = $([ "$OVERWRITE" -eq 1 ] && echo ifSourceNewer || echo false); retry mode = $RETRY_MODE; dry run = $DRY_RUN"
     vlog "setting retry     = ${RETRY_ROOT:-DIR/.upload-retry}  [$(src_of r PHOTO_UPLOAD_RETRY)]"
     vlog "setting logs      = $RUNS_ROOT  [$(src_of x PHOTO_UPLOAD_LOGS)]"
@@ -399,7 +416,26 @@ fi
 [ "$RETRY_MODE" -eq 0 ] || log "Mode:    retry (only files in the retry folders)"
 log ""
 
+# Ask whether to create a missing container ($1); 0 = go ahead.
+confirm_create() {
+    case "$CREATE" in
+        yes) return 0 ;;
+        no)  return 1 ;;
+    esac
+    if [ ! -t 0 ]; then
+        echo "Container '$1' does not exist, and there is no terminal to ask on. Use -c yes to create it." >&2
+        return 1
+    fi
+    local ans
+    printf "Container '%s' does not exist in storage account '%s'. Create it (private)? [y/N] " "$1" "$ACCOUNT" >&2
+    read -r ans || ans=""
+    case "$ans" in [Yy]|[Yy][Ee][Ss]) return 0 ;; esac
+    return 1
+}
+
 checked="|"
+MISSING="|"                     # containers that do not exist yet (dry run only)
+CREATED="|"                     # containers created by this run
 i=0
 while [ $i -lt ${#E_C[@]} ]; do
     c="${E_C[$i]}"; i=$((i + 1))
@@ -418,7 +454,24 @@ while [ $i -lt ${#E_C[@]} ]; do
         exit 1
     fi
     vlog "container $c exists: $out"
-    [ "$out" = "true" ] || die "container '$c' does not exist in storage account '$ACCOUNT'. Create it first (this script never creates containers)."
+    if [ "$out" != "true" ]; then
+        [ "$RETRY_MODE" -eq 0 ] || die "container '$c' does not exist in storage account '$ACCOUNT', so there is nothing to retry."
+        if [ "$DRY_RUN" -eq 1 ]; then
+            [ "$CREATE" != "no" ] || die "container '$c' does not exist in storage account '$ACCOUNT' (-c no: not creating containers)."
+            MISSING="$MISSING$c|"
+            continue
+        fi
+        confirm_create "$c" || die "container '$c' does not exist in storage account '$ACCOUNT' and was not created. Use -c yes to create missing containers, or create it yourself first."
+        if ! trace az storage container create --account-name "$ACCOUNT" -n "$c" --auth-mode login \
+                 --query created -o tsv > /dev/null 2> "$WORK/exists.err"; then
+            echo "Error: cannot create container '$c' in '$ACCOUNT' as $IDENTITY:" >&2
+            sed -e '/^[[:space:]]*$/d' "$WORK/exists.err" | head -n "$ERR_LINES" | redact | sed 's/^/  /' >&2
+            echo "  $IDENTITY needs the 'Storage Blob Data Contributor' role on storage account $ACCOUNT." >&2
+            exit 1
+        fi
+        log "Created container '$c' in '$ACCOUNT'."
+        CREATED="$CREATED$c|"
+    fi
     # "exists" only needs a management role such as Owner; reading blobs needs
     # a data role, which uploads need too, so check that before uploading.
     if ! trace az storage blob list --account-name "$ACCOUNT" -c "$c" --auth-mode login \
@@ -488,6 +541,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
         n=$(wc -l < "$WORK/list" | tr -d ' ')
         loose=$(awk -F'\t' 'index($1, "/") == 0' "$WORK/list" | wc -l | tr -d ' ')
         bytes=$(awk -F'\t' '{ s += $2 } END { printf "%d", s }' "$WORK/list")
+        case "$MISSING" in *"|$c|"*) log "$c: container does not exist; WOULD be created (private)" ;; esac
         log "$c: WOULD upload $n file(s), $(size_h "$bytes")"
         log "    from  $src"
         log "    to    https://$ACCOUNT.$BLOB_SUFFIX/$c/${bp:+$bp/}"
@@ -515,6 +569,7 @@ fi
     echo "identity  $IDENTITY ($CRED_DESC)"
     echo "access    $TRANSFER"
     [ "$RETRY_MODE" -eq 0 ] || echo "mode      retry"
+    [ "$CREATED" = "|" ] || echo "created   containers: $(printf '%s' "${CREATED#|}" | sed -e 's/|$//' -e 's/|/, /g')"
     echo ""
 } > "$REPORT"
 

@@ -308,7 +308,7 @@ Uploads local folders into Azure Blob Storage containers, one container per cate
 
 **Workflow:**
 1. **Sign in** — as you (your existing `az login`) or as a service principal (`-I sp`, see [Service principal setup](#service-principal-setup)).
-2. **Check** — before anything is uploaded, every container is checked: it must exist and the signed-in identity must have access. Problems stop the run with a message naming the missing role.
+2. **Check** — before anything is uploaded, every container is checked: it must exist and the signed-in identity must have access. If a container does not exist, the script asks whether to create it (see `-c`). Problems stop the run with a message naming the missing role.
 3. **Authorize azcopy** — by default the script creates a short-lived **user delegation SAS** for each container. The SAS is signed with your Entra ID sign-in, never with storage account keys, so account keys can stay disabled. It allows only read/create/write/list, never delete, and is HTTPS-only and never printed or logged. With `-A oauth`, azcopy signs in itself instead and renews its own tokens. That suits very long uploads, which could outlast a SAS.
 4. **Upload** — every file under each folder goes to its container (see [Where files go in the container](#where-files-go-in-the-container)):
    - Each first-level subfolder becomes a folder in the container, keeping everything below it.
@@ -337,10 +337,12 @@ upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
   -z TENANT     Entra tenant ID
   -K PEM        service principal certificate (PEM with private key + certificate)
   -A sas|oauth  azcopy uses a SAS this script creates, or signs in itself (default: sas)
+  -c ask|yes|no missing container: ask before creating it, create it, or stop (default: ask)
   -t HOURS      SAS lifetime, 1-167 (default 24)
   -T TIER       blob tier: Hot, Cool, Cold or Archive (default: the account's)
   -O            replace a blob when the local file is newer (default: never replace)
   -n            dry run: sign in and check access, show what would be uploaded
+                (and which containers would be created); nothing is created
   -v            verbose: show settings, every az/azcopy command and full errors (for debugging)
 ```
 
@@ -399,6 +401,18 @@ upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-
 upload_azure.sh -a rpsphotography001 -m ~/photo-categories.txt
 ```
 
+**Creating missing containers (`-c`):** when a container does not exist in the storage account, `-c` decides what happens:
+- `ask` (default): the script asks `Create it (private)? [y/N]` for each missing container. If you answer no, or there is no terminal to ask on (e.g. a scheduled run), the run stops before anything is uploaded.
+- `yes`: missing containers are created without asking, for unattended runs.
+- `no`: containers are never created; the run stops if one is missing.
+
+With `-n` nothing is created and nothing is asked; the output says which containers would be created. In retry mode (`-R`) containers are never created, because there is nothing to retry in a container that doesn't exist. Created containers are listed in the run's `report.txt`.
+
+```bash
+# Create the container grand-haven if it is missing, without asking
+upload_azure.sh -a rpsphotography001 -u grand-haven=~/Export/grand-haven -c yes
+```
+
 **Retry folder layout** (default: inside each source folder; links are hidden from normal uploads):
 ```
 ~/Export/grand-haven/
@@ -428,7 +442,7 @@ az role assignment create --assignee "$(az ad signed-in-user show --query id -o 
 ```
 
 - New role assignments can take up to 10 minutes to start working.
-- The containers must already exist; the script never creates them.
+- Missing containers can be created by the script (`-c`, see below). New containers are private, with no public access. Creating one needs the same role.
 - If the storage account has a firewall, your public IP must be allowed.
 - Storage account keys (shared key access) are never used and can stay disabled.
 
@@ -474,6 +488,7 @@ A service principal lets the upload run under its own identity instead of yours,
 | Keychain item          | —      | `PHOTO_AZ_KEYCHAIN_SERVICE`                                 | `photo-tools-azure`  |
 | Storage account name   | `-a`   | `PHOTO_AZ_ACCOUNT`                                          | —                    |
 | azcopy authorization   | `-A`   | `PHOTO_AZ_TRANSFER`                                         | `sas`                |
+| Missing containers     | `-c`   | `PHOTO_AZ_CREATE_CONTAINERS`                                | `ask`                |
 | Retry folder root      | `-r`   | `PHOTO_UPLOAD_RETRY`                                        | `DIR/.upload-retry`  |
 | Reports and logs       | —      | `PHOTO_UPLOAD_LOGS`                                         | `~/.photo-tools/upload-runs` |
 | Verbose output         | `-v`   | `PHOTO_UPLOAD_VERBOSE=1`                                    | off                  |
