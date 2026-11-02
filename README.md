@@ -155,6 +155,8 @@ Options:
   -s SOURCE    card mount point (default: the volume in /Volumes that has a DCIM folder)
   -d DEST      destination root (required unless PHOTO_IMPORT_DEST is set)
   -m           explicitly include the EXIF camera Make and Model in filenames (default: on)
+  -today       import only files captured today (use file timestamp if EXIF
+               date is missing)
   -D YYYYMMDD  put everything in this one date folder instead of sorting by capture date
   -V           verify copies byte-for-byte (default: size check)
   -k           copy and rename only; skip DNG conversion (and NEF compression)
@@ -180,6 +182,9 @@ export PHOTO_IMPORT_DEST="/Volumes/photos-01"
 
 # Preview what will happen
 import_photos.sh -e "Detroit Riverwalk" -n
+
+# Preview only photos captured today
+import_photos.sh -e "Detroit Riverwalk" -today -n
 
 # Camera Make and Model are included by default in NEF, JPG and DNG filenames
 import_photos.sh -e "Detroit Riverwalk" -n

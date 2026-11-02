@@ -67,6 +67,8 @@
 #   -d DEST      destination root (required unless PHOTO_IMPORT_DEST is set)
 #   -m           explicitly include the camera Make and Model in NEF, JPG and
 #                DNG filenames (default: on)
+#   -today       import only files captured today (use file timestamp if EXIF
+#                date is missing)
 #   -D YYYYMMDD  put everything in this one date folder instead of sorting
 #                by each file's capture date
 #   -V           verify copies byte-for-byte (default: size check)
@@ -112,11 +114,26 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 RENAME_NEF="$SCRIPT_DIR/rename_nef.sh"
 
 EVENT_RAW=""; SOURCE=""; FORCE_DATE=""; VERIFY_BYTES=0; SKIP_DNG=0; CAMERA_NAME=1
-FORCE=0; EJECT=0; DRY_RUN=0
+TODAY_ONLY=0; FORCE=0; EJECT=0; DRY_RUN=0
 
 usage() { sed -n '/^# Usage:/,/^# Environment/p' "$0" | sed -e 's/^# \{0,1\}//' -e '$d' >&2; exit 1; }
 die()   { echo "Error: $*" >&2; exit 1; }
 log()   { echo "$*"; }
+
+# Extract the long option without interpreting option values as options.
+args=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -e|-c|-s|-d|-D)
+            args+=("$1"); shift
+            [ $# -gt 0 ] && { args+=("$1"); shift; }
+            ;;
+        -today) TODAY_ONLY=1; shift ;;
+        --) args+=("$@"); break ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+set -- "${args[@]}"
 
 while getopts ":e:c:s:d:D:VkzFmxnh" opt; do
     case "$opt" in
@@ -184,6 +201,7 @@ EVENT=$(printf '%s' "$EVENT_RAW" | tr '[:upper:]' '[:lower:]' \
         | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-//' -e 's/-$//')
 [ -n "$EVENT" ] || die "event name '$EVENT_RAW' has no usable letters or digits."
 [ -z "$FORCE_DATE" ] || is_ymd "$FORCE_DATE" || die "-D must be YYYYMMDD, got '$FORCE_DATE'."
+TODAY_DATE=$(date +%Y%m%d)
 
 [ -n "$DEST_ROOT" ] || die "a destination root is required (-d DEST or PHOTO_IMPORT_DEST)."
 [ -d "$DEST_ROOT" ] || die "destination '$DEST_ROOT' not found."
@@ -227,6 +245,7 @@ trap 'echo ""; [ -n "$CONV_PID" ] && kill "$CONV_PID" 2>/dev/null
 log "Event:   $EVENT"
 log "Card:    $SOURCE"
 log "Dest:    $DEST_ROOT"
+[ "$TODAY_ONLY" -eq 0 ] || log "Date:    today ($TODAY_DATE)"
 if [ "$SKIP_DNG" -eq 0 ]; then
     if [ -n "$COPYRIGHT_OWNER" ]; then
         log "Rights:  © <capture year> $COPYRIGHT_OWNER"
@@ -280,12 +299,14 @@ while IFS=$'\t' read -r f dto sub; do
             key="$name	$size	$dto$sub" ;;
         *)  key="$name	$size	$mtime" ;;
     esac
+    capture_date="${dto:0:8}"; is_ymd "$capture_date" || capture_date=$(epoch_ymd "$mtime")
+    [ "$TODAY_ONLY" -eq 0 ] || [ "$capture_date" = "$TODAY_DATE" ] || continue
     if [ "$FORCE" -eq 0 ] && grep -qxF "$key" "$MANIFEST" 2>/dev/null; then
         already=$((already + 1)); continue
     fi
 
     if [ -n "$FORCE_DATE" ]; then d="$FORCE_DATE"
-    else d="${dto:0:8}"; is_ymd "$d" || d=$(epoch_ymd "$mtime")
+    else d="$capture_date"
     fi
     TODO+=("$f"); TODO_KEY+=("$key"); TODO_DATE+=("$d"); TODO_SIZE+=("$size")
     total_bytes=$((total_bytes + size))
