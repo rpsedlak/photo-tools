@@ -9,6 +9,7 @@
 # Usage:
 #   ./rename_dng.sh [-n] [-r] [-v] -e EVENT DIRECTORY
 #     -n       dry run: show what would be renamed, change nothing
+#              (over 500 files: warns it can take several minutes and asks to continue)
 #     -r       recurse into subdirectories
 #     -v       verbose: show the settings and, for each file, where its date
 #              came from and why it was skipped (default: off)
@@ -26,6 +27,22 @@ EVENT_RAW=""
 VERBOSE=0
 
 vlog() { [ "$VERBOSE" -eq 1 ] && echo "verbose: $*" >&2; return 0; }
+
+# A dry run still reads every file's metadata, so warn before a big one.
+# Asks first when run from a terminal; otherwise warns and carries on.
+DRY_RUN_WARN_FILES=500
+confirm_large_dry_run() {   # $1 = number of files
+    [ "$DRY_RUN" -eq 1 ] && [ "$1" -gt "$DRY_RUN_WARN_FILES" ] || return 0
+    echo "Warning: $1 files found. A dry run can take several minutes to complete." >&2
+    if [ -t 0 ]; then
+        printf 'Continue? [y/N] ' >&2
+        read -r reply
+        case "$reply" in
+            [yY]|[yY][eE][sS]) ;;
+            *) echo "Cancelled — nothing was changed." >&2; exit 0 ;;
+        esac
+    fi
+}
 
 usage() {
     echo "Usage: $(basename "$0") [-n] [-r] [-v] -e EVENT DIRECTORY" >&2
@@ -81,6 +98,11 @@ next_serial() {
 }
 
 vlog "directory: $DIR; event: $EVENT_RAW -> $EVENT; recurse: $([ -n "$RECURSE" ] && echo yes || echo no); dry run: $([ "$DRY_RUN" -eq 1 ] && echo yes || echo no)"
+if [ "$DRY_RUN" -eq 1 ]; then
+    if [ -n "$RECURSE" ]; then depth=""; else depth="-maxdepth 1"; fi
+    # shellcheck disable=SC2086  # $depth is intentionally word-split.
+    confirm_large_dry_run "$(find "$DIR" $depth -type f -iname '*.dng' | wc -l | tr -d ' ')"
+fi
 vlog "reading capture dates with exiftool..."
 
 renamed=0; skipped=0; failed=0; found=0

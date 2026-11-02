@@ -166,6 +166,8 @@ Options:
                (identical photos are still never converted twice)
   -x           eject the card when finished
   -n           dry run: show what would happen, change nothing
+               (with more than 500 files it warns that this can take several
+               minutes and asks whether to continue)
   -v           verbose: show the settings and what is done with each file
                (default: off; not the same as -V)
 
@@ -266,6 +268,8 @@ DSC_0143.JPG -> 2026101720184537-Nikon-Z-8.JPG      (with -e jpg)
 ```bash
 rename_nef.sh [-n] [-r] [-m] [-v] [-e EXT] DIRECTORY
   -n       dry run: show what would be renamed, change nothing
+           (with more than 500 files it warns that this can take several
+           minutes and asks whether to continue)
   -r       recurse into subdirectories
   -m       explicitly include the camera Make and Model (default: on)
   -v       verbose: show the metadata each file is named from and why files are
@@ -286,6 +290,8 @@ Renames DNG files to `YYYYMMDD-event-NNNNN.dng`. The event is normalized like `i
 ```bash
 rename_dng.sh [-n] [-r] [-v] -e EVENT DIRECTORY
   -n       dry run: show what would be renamed, change nothing
+           (with more than 500 files it warns that this can take several
+           minutes and asks whether to continue)
   -r       recurse into subdirectories
   -v       verbose: show where each file's date came from and why files are
            skipped (default: off)

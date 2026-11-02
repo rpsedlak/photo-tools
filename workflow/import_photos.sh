@@ -79,6 +79,7 @@
 #                (identical photos are still never converted twice)
 #   -x           eject the card when finished
 #   -n           dry run: show what would happen, change nothing
+#                (over 500 files: warns it can take several minutes and asks to continue)
 #   -v           verbose: show the settings and what is done with each file
 #                (default: off; not the same as -V)
 #
@@ -177,6 +178,22 @@ is_ymd()    { case "$1" in [12][0-9][0-9][0-9][01][0-9][0-3][0-9]) return 0 ;; e
 ext_of()    { local n; n=$(basename "$1"); if [ "$n" = "${n##*.}" ]; then echo OTHER; else upper "${n##*.}"; fi; }
 add_date()  { case "$dates_seen" in *"|$1|"*) ;; *) dates_seen="$dates_seen$1|" ;; esac; }
 
+# A dry run still reads every file's metadata, so warn before a big one.
+# Asks first when run from a terminal; otherwise warns and carries on.
+DRY_RUN_WARN_FILES=500
+confirm_large_dry_run() {   # $1 = number of files
+    [ "$DRY_RUN" -eq 1 ] && [ "$1" -gt "$DRY_RUN_WARN_FILES" ] || return 0
+    echo "Warning: $1 files found. A dry run can take several minutes to complete." >&2
+    if [ -t 0 ]; then
+        printf 'Continue? [y/N] ' >&2
+        read -r reply
+        case "$reply" in
+            [yY]|[yY][eE][sS]) ;;
+            *) echo "Cancelled — nothing was changed." >&2; exit 0 ;;
+        esac
+    fi
+}
+
 # ---------- progress display --------------------------------------------------
 # On a terminal one status line is rewritten in place; when the output goes to
 # a file or pipe, a line is printed at every 10% instead.
@@ -269,6 +286,7 @@ vlog "paths: rename_nef = $RENAME_NEF; DNG converter = $DNG_CONVERTER ($DNG_OPTS
 scan="$SOURCE"; [ -d "$SOURCE/DCIM" ] && scan="$SOURCE/DCIM"
 find "$scan" -type f ! -name '.*' ! -path '*/.*' > "$WORK/files"
 vlog "scanning $scan: $(wc -l < "$WORK/files" | tr -d ' ') file(s) found"
+confirm_large_dry_run "$(wc -l < "$WORK/files" | tr -d ' ')"
 
 # Capture time for every file in one exiftool pass: path, YYYYMMDDHHMMSS, subsec.
 # -progress reports "[n/total]" on stderr, which drives the status line.
