@@ -267,6 +267,8 @@ case "$IGNORE_EXTENSIONS" in
     "" ) ;;
     ,*|*,|*,,*|*[!a-z0-9,]*) die "-e must be a comma-separated list of filename extensions (letters and digits only)." ;;
 esac
+IGNORE_EXTENSIONS_RE=""
+[ -z "$IGNORE_EXTENSIONS" ] || IGNORE_EXTENSIONS_RE="|(?i)\.($(printf '%s' "$IGNORE_EXTENSIONS" | tr ',' '|'))$"
 
 if [ "$AUTH" = "sp" ]; then
     missing=""
@@ -681,10 +683,10 @@ while [ $j -lt ${#J_C[@]} ]; do
     for pass in sub loose; do
         if [ "$pass" = "sub" ]; then
             pass_n=$((n - loose)); pass_url="$url"
-            copy_args=(copy "$src/*" "$pass_url" --recursive --exclude-regex "$HIDDEN_RE|^[^/]+\$")
+            copy_args=(copy "$src/*" "$pass_url" --recursive --exclude-regex "$HIDDEN_RE|^[^/]+\$${IGNORE_EXTENSIONS_RE}")
         else
             pass_n=$loose; pass_url="$dest/$GENERAL_DIR${sas:+?$sas}"
-            copy_args=(copy "$src/*" "$pass_url" --exclude-regex "$HIDDEN_RE")
+            copy_args=(copy "$src/*" "$pass_url" --exclude-regex "$HIDDEN_RE${IGNORE_EXTENSIONS_RE}")
         fi
         [ "$pass_n" -gt 0 ] || continue
         copy_args+=(--put-md5 --block-size-mb=40 --cap-mbps=0
