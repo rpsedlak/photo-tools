@@ -536,8 +536,11 @@ list_files() {
             NF == 2 {
                 name = $1
                 sub(/^.*\//, "", name)
-                ext = name
-                if (ext ~ /\./) sub(/^.*\./, "", ext)
+                ext = ""
+                if (name ~ /\./) {
+                    ext = name
+                    sub(/^.*\./, "", ext)
+                }
                 if (!(tolower(ext) in skip))
                     print $1, $2, bp (index($1, "/") ? $1 : g "/" $1)
             }'
