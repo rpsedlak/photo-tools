@@ -9,8 +9,8 @@
 #            SAS for each container (signed with Entra ID, never with account
 #            keys) and hands it to azcopy. With -A oauth, azcopy signs in
 #            itself instead and renews its own tokens (best for very long runs).
-#   UPLOAD   Every file under each folder is uploaded to its container,
-#            keeping the folder structure:
+#   UPLOAD   Files under each folder are uploaded to its container, keeping the
+#            folder structure. NEF and ZIP files are skipped by default:
 #                DIR/20261017/DNG/a.dng -> <container>/<prefix>/20261017/DNG/a.dng
 #            Hidden files and folders are skipped. Blobs that are already in
 #            the container are skipped, so a re-run only sends what is new.
@@ -38,6 +38,8 @@
 #   -r RETRY      retry folder root (default: $PHOTO_UPLOAD_RETRY, else
 #                 DIR/.upload-retry for each DIR)
 #   -R            retry mode: upload only what is in the retry folders
+#   -e EXTENSIONS comma-separated filename extensions to ignore (default:
+#                 $PHOTO_UPLOAD_IGNORE_EXTENSIONS, else nef,zip); -e '' ignores none
 #   -I user|sp    which Azure identity signs in and uploads (default: $PHOTO_AZ_AUTH,
 #                 else user):
 #                   user  you: reuses your existing 'az login' sign-in. Simplest;
@@ -91,6 +93,8 @@
 #   PHOTO_AZ_TRANSFER       sas or oauth (same as -A)
 #   PHOTO_AZ_CREATE_CONTAINERS  ask, yes or no (same as -c)
 #   PHOTO_UPLOAD_RETRY      retry folder root (same as -r)
+#   PHOTO_UPLOAD_IGNORE_EXTENSIONS  comma-separated extensions to ignore
+#                           (default: nef,zip; empty disables ignoring)
 #   PHOTO_UPLOAD_LOGS       where run reports and azcopy logs go
 #                           (default: ~/.photo-tools/upload-runs)
 #   PHOTO_UPLOAD_VERBOSE    1 = verbose (same as -v)
@@ -116,6 +120,7 @@ KEYCHAIN_SERVICE="${PHOTO_AZ_KEYCHAIN_SERVICE:-photo-tools-azure}"
 TRANSFER="${PHOTO_AZ_TRANSFER:-sas}"
 CREATE="${PHOTO_AZ_CREATE_CONTAINERS:-ask}"
 RETRY_ROOT="${PHOTO_UPLOAD_RETRY:-}"
+IGNORE_EXTENSIONS="${PHOTO_UPLOAD_IGNORE_EXTENSIONS-nef,zip}"
 RUNS_ROOT="${PHOTO_UPLOAD_LOGS:-$HOME/.photo-tools/upload-runs}"
 case "${PHOTO_UPLOAD_VERBOSE:-0}" in 1|[Yy]*|[Tt]rue) VERBOSE=1 ;; *) VERBOSE=0 ;; esac
 
@@ -123,7 +128,7 @@ src_of() {        # where a setting came from: $1 = option letter, then env name
     local opt="$1" v; shift
     case "$OPTS_GIVEN" in *"$opt"*) echo "option -$opt"; return ;; esac
     for v in "$@"; do
-        if [ -n "$(printenv "$v")" ]; then echo "\$$v"; return; fi
+        if printenv "$v" >/dev/null 2>&1; then echo "\$$v"; return; fi
     done
     echo "default"
 }
@@ -169,7 +174,7 @@ trace() {         # run a command; with -v log it (secrets hidden), its exit cod
 NL='
 '
 
-while getopts ":a:u:m:p:r:RI:i:z:K:A:c:t:T:Onvh" opt; do
+while getopts ":a:u:m:p:r:e:RI:i:z:K:A:c:t:T:Onvh" opt; do
     OPTS_GIVEN="$OPTS_GIVEN$opt"
     case "$opt" in
         a) ACCOUNT="$OPTARG" ;;
@@ -178,6 +183,7 @@ while getopts ":a:u:m:p:r:RI:i:z:K:A:c:t:T:Onvh" opt; do
            SPEC_LINES="$SPEC_LINES$(cat "$OPTARG")$NL" ;;
         p) PREFIX="$OPTARG" ;;
         r) RETRY_ROOT="$OPTARG" ;;
+        e) IGNORE_EXTENSIONS="$OPTARG" ;;
         R) RETRY_MODE=1 ;;
         I) AUTH="$OPTARG" ;;
         i) CLIENT_ID="$OPTARG" ;;
@@ -256,6 +262,11 @@ case "$PREFIX" in *[!A-Za-z0-9._/-]*) die "-p may only use letters, digits, '.',
 if [ -n "$PREFIX" ]; then
     case "/$PREFIX/" in *//*|*/./*|*/../*) die "-p has an empty, '.' or '..' folder: '$PREFIX'." ;; esac
 fi
+IGNORE_EXTENSIONS=$(printf '%s' "$IGNORE_EXTENSIONS" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+case "$IGNORE_EXTENSIONS" in
+    "" ) ;;
+    ,*|*,|*,,*|*[!a-z0-9,]*) die "-e must be a comma-separated list of filename extensions (letters and digits only)." ;;
+esac
 
 if [ "$AUTH" = "sp" ]; then
     missing=""
@@ -331,6 +342,7 @@ if [ "$VERBOSE" -eq 1 ]; then
     vlog "setting create    = $CREATE  [$(src_of c PHOTO_AZ_CREATE_CONTAINERS)]"
     vlog "setting prefix    = ${PREFIX:-<none>}; SAS hours = $SAS_HOURS; tier = ${TIER:-<account default>}; overwrite = $([ "$OVERWRITE" -eq 1 ] && echo ifSourceNewer || echo false); retry mode = $RETRY_MODE; dry run = $DRY_RUN"
     vlog "setting retry     = ${RETRY_ROOT:-DIR/.upload-retry}  [$(src_of r PHOTO_UPLOAD_RETRY)]"
+    vlog "setting ignored extensions = ${IGNORE_EXTENSIONS:-<none>}  [$(src_of e PHOTO_UPLOAD_IGNORE_EXTENSIONS)]"
     vlog "setting logs      = $RUNS_ROOT  [$(src_of x PHOTO_UPLOAD_LOGS)]"
     i=0
     while [ $i -lt ${#E_C[@]} ]; do
@@ -507,8 +519,8 @@ done
 if [ ${#J_C[@]} -eq 0 ]; then log "Nothing to do."; exit 0; fi
 
 # $1 = folder, $2 = prefix -> "relative path<TAB>size<TAB>blob name" lines,
-# hidden files skipped. Each first-level subfolder keeps its name in the
-# container; files directly inside the folder go into GENERAL_DIR.
+# hidden and ignored-extension files skipped. Each first-level subfolder keeps
+# its name in the container; files directly inside go into GENERAL_DIR.
 list_files() {
     if [ "$RETRY_MODE" -eq 1 ]; then
         (cd "$1" && find . \( -type f -o \( -type l -exec test -f {} \; \) \) ! -path '*/.*' -exec stat -L -f '%N%t%z' {} + 2>/dev/null)
@@ -516,8 +528,19 @@ list_files() {
         (cd "$1" && find . -type f ! -path '*/.*' -exec stat -f '%N%t%z' {} + 2>/dev/null)
     fi |
         sed 's|^\./||' | LC_ALL=C sort |
-        awk -F'\t' -v OFS='\t' -v bp="${2:+$2/}" -v g="$GENERAL_DIR" '
-            NF == 2 { print $1, $2, bp (index($1, "/") ? $1 : g "/" $1) }'
+        awk -F'\t' -v OFS='\t' -v bp="${2:+$2/}" -v g="$GENERAL_DIR" -v ignored="$IGNORE_EXTENSIONS" '
+            BEGIN {
+                n = split(ignored, parts, ",")
+                for (i = 1; i <= n; i++) if (parts[i] != "") skip[parts[i]] = 1
+            }
+            NF == 2 {
+                name = $1
+                sub(/^.*\//, "", name)
+                ext = name
+                if (ext ~ /\./) sub(/^.*\./, "", ext)
+                if (!(tolower(ext) in skip))
+                    print $1, $2, bp (index($1, "/") ? $1 : g "/" $1)
+            }'
 }
 
 # A loose file and a file of the same name in DIR/general/ would both become
