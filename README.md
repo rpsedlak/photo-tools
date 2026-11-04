@@ -339,7 +339,7 @@ upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
   -K PEM        service principal certificate (PEM with private key + certificate)
   -A sas|oauth  azcopy uses a SAS this script creates, or signs in itself (default: sas)
   -c ask|yes|no missing container: ask before creating it, create it, or stop (default: ask)
-  -t HOURS      SAS lifetime, 1-167 (default 24)
+  -t HOURS      SAS lifetime, 1-167 (default 48)
   -T TIER       blob tier: Hot, Cool, Cold or Archive (default: the account's)
   -O            replace a blob when the local file is newer (default: never replace)
   -n            dry run: sign in and check access, show what would be uploaded

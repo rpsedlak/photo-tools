@@ -68,7 +68,7 @@
 #                 nothing is created or asked; the output says which
 #                 containers would be created. Creating a container needs the
 #                 same 'Storage Blob Data Contributor' role. Not used with -R.
-#   -t HOURS      SAS lifetime in hours, 1-167 (default 24)
+#   -t HOURS      SAS lifetime in hours, 1-167 (default 48)
 #   -T TIER       blob tier: Hot, Cool, Cold or Archive (default: the account's)
 #   -O            replace a blob when the local file is newer
 #                 (default: never replace a blob that is already there)
@@ -137,7 +137,7 @@ HIDDEN_RE='(^|/)\.'             # skip hidden files and anything in hidden folde
 GENERAL_DIR="general"           # container folder for files directly inside DIR
 SHOW_FAILS=20                   # FAIL lines printed per container; all go in the report
 
-PREFIX=""; SAS_HOURS=24; TIER=""; OVERWRITE=0; RETRY_MODE=0; DRY_RUN=0
+PREFIX=""; SAS_HOURS=48; TIER=""; OVERWRITE=0; RETRY_MODE=0; DRY_RUN=0
 SPEC_LINES=""                   # CONTAINER=DIR lines from -u and -m
 OPTS_GIVEN=""                   # option letters used, for the -v settings list
 ERR_LINES=3                     # lines of az error output shown (all of them with -v)
