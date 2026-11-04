@@ -310,7 +310,7 @@ Uploads local folders into Azure Blob Storage containers, one container per cate
 1. **Sign in** — as you (your existing `az login`) or as a service principal (`-I sp`, see [Service principal setup](#service-principal-setup)).
 2. **Check** — before anything is uploaded, every container is checked: it must exist and the signed-in identity must have access. If a container does not exist, the script asks whether to create it (see `-c`). Problems stop the run with a message naming the missing role.
 3. **Authorize azcopy** — by default the script creates a short-lived **user delegation SAS** for each container. The SAS is signed with your Entra ID sign-in, never with storage account keys, so account keys can stay disabled. It allows only read/create/write/list, never delete, and is HTTPS-only and never printed or logged. With `-A oauth`, azcopy signs in itself instead and renews its own tokens. That suits very long uploads, which could outlast a SAS.
-4. **Upload** — every file under each folder goes to its container (see [Where files go in the container](#where-files-go-in-the-container)):
+4. **Upload** — files under each folder go to its container, except `.NEF` and `.ZIP` files, which are skipped by default (see [Ignoring file extensions](#ignoring-file-extensions) and [Where files go in the container](#where-files-go-in-the-container)):
    - Each first-level subfolder becomes a folder in the container, keeping everything below it.
    - Files sitting directly in the folder go into a `general/` folder.
    - Hidden files and folders (`.DS_Store`, `.incoming/`, …) are skipped.
@@ -332,6 +332,7 @@ upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
   -p PREFIX     optional extra folder in front of everything uploaded, e.g. 2026
   -r RETRY      retry folder root (default: $PHOTO_UPLOAD_RETRY, else DIR/.upload-retry)
   -R            retry mode: upload only what is in the retry folders
+  -e EXTENSIONS comma-separated filename extensions to ignore (default: $PHOTO_UPLOAD_IGNORE_EXTENSIONS, else nef,zip)
   -I user|sp    who signs in: user = your az login, sp = a service principal (default: user)
   -i APP_ID     service principal application (client) ID
   -z TENANT     Entra tenant ID
@@ -347,6 +348,8 @@ upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
 ```
 
 Exit status: `0` everything uploaded (or already there), `2` some files failed and were moved to the retry folder, `1` error (nothing uploaded).
+
+**Ignoring file extensions:** `.NEF` and `.ZIP` files are skipped by default, regardless of case, in both normal and retry runs. Set `PHOTO_UPLOAD_IGNORE_EXTENSIONS` or pass `-e` with a comma-separated list (extensions without dots) to change the list. An empty value disables filtering; for example, use `-e ''` to include all extensions or `-e nef` to ignore only NEF files.
 
 **Choosing the storage account (`-a` / `PHOTO_AZ_ACCOUNT`):** this is the *name* of the Azure storage account that holds your category containers. It's the first part of the account's blob address `https://<name>.blob.core.windows.net`. Storage account names are 3–24 lowercase letters and digits and are unique across all of Azure. Use the bare name, not the URL, the resource group, or a container name. To find it:
 ```bash
@@ -490,6 +493,7 @@ A service principal lets the upload run under its own identity instead of yours,
 | azcopy authorization   | `-A`   | `PHOTO_AZ_TRANSFER`                                         | `sas`                |
 | Missing containers     | `-c`   | `PHOTO_AZ_CREATE_CONTAINERS`                                | `ask`                |
 | Retry folder root      | `-r`   | `PHOTO_UPLOAD_RETRY`                                        | `DIR/.upload-retry`  |
+| Ignored extensions     | `-e`   | `PHOTO_UPLOAD_IGNORE_EXTENSIONS`                            | `nef,zip`            |
 | Reports and logs       | —      | `PHOTO_UPLOAD_LOGS`                                         | `~/.photo-tools/upload-runs` |
 | Verbose output         | `-v`   | `PHOTO_UPLOAD_VERBOSE=1`                                    | off                  |
 
