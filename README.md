@@ -333,6 +333,8 @@ report_azure.sh -a rpsphotography001
 report_azure.sh -a rpsphotography001 -d ~/Desktop/storage-report.xlsx
 ```
 
+Relative output paths are resolved from the current terminal directory. The report prints the full path of the workbook it writes.
+
 The tool requires Azure CLI and Python 3. Set `PHOTO_AZ_ACCOUNT` once in your shell profile to omit `-a`.
 
 ---

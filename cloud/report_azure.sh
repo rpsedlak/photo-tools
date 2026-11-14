@@ -267,7 +267,7 @@ def write_workbook(path, containers, blobs_by_container):
     directory = os.path.dirname(os.path.abspath(path))
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile(prefix=".azure-report-", suffix=".xlsx", dir=directory, delete=False) as handle:
+        with tempfile.NamedTemporaryFile(prefix="azure-report-", suffix=".tmp", dir=directory, delete=False) as handle:
             temporary = handle.name
         with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as workbook_file:
             ET.register_namespace("", package_ns)
@@ -307,7 +307,7 @@ def main():
     total_bytes = sum(fields[1] for blobs in blobs_by_container for fields in blobs)
     if MODE == "detail":
         write_workbook(OUTPUT, containers, blobs_by_container)
-        print("Excel report written to {}".format(OUTPUT))
+        print("Excel report written to {}".format(os.path.abspath(OUTPUT)))
     print("Azure Storage Blob report: {}".format(ACCOUNT))
     print("Containers: {} | Blobs: {} | Total size: {:.3f} GB".format(len(containers), total_blobs, gigabytes(total_bytes)))
     print("{:<32} {:>12} {:>20}".format("Container", "Blobs", "Size (GB)"))
