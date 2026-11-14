@@ -16,7 +16,8 @@ photo-tools/
 │   ├── rename_nef.sh         # rename NEFs/JPGs to capture time (used by import_photos.sh)
 │   └── rename_dng.sh         # rename DNGs by capture date, event and serial
 ├── cloud/                    # cloud backup and sharing
-│   └── upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
+│   ├── upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
+│   └── report_azure.sh       # read-only Azure Blob account statistics and Excel reports
 └── tools/                    # dependency management
   ├── prereqs.sh            # checks for / installs required tools (via Homebrew)
   └── update.sh             # updates Homebrew-managed dependencies
@@ -302,6 +303,42 @@ For example, `IMG_1234.dng` might become `20261017-detroit-riverwalk-00008.dng` 
 
 ---
 
+### `cloud/report_azure.sh` — Report Azure Blob Storage usage
+
+Reports blob counts and total sizes for every container in a storage account. Sizes are reported in gigabytes (GB). It only lists containers and blobs; it does not create, change, or delete anything in Azure. The default summary is printed to the terminal. Detail mode writes an Excel workbook with an overall **Summary** tab first, followed by one tab per container containing each blob's name, size in GB, last-modified time, blob type, content type, and access tier.
+
+**Access:** By default, the report uses your existing `az login` identity. You can also use a service principal with `-I sp`, using the same credentials and environment variables as `upload_azure.sh` (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Reader** role at storage-account scope or a parent scope; container-scoped assignments alone cannot authorize the initial account-wide container listing. The report does not request or store account keys.
+
+**Usage** (installed in `/usr/local/bin`):
+```bash
+report_azure.sh -a ACCOUNT [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-s | -d FILE.xlsx] [-v]
+
+  -a ACCOUNT  storage account name (default: $PHOTO_AZ_ACCOUNT)
+  -I user|sp  Azure identity (default: $PHOTO_AZ_AUTH, else user)
+  -i APP_ID   service principal app ID (PHOTO_AZ_CLIENT_ID or AZURE_CLIENT_ID)
+  -z TENANT   tenant ID (PHOTO_AZ_TENANT_ID or AZURE_TENANT_ID)
+  -K PEM      service principal certificate (PHOTO_AZ_CERT_PATH or AZURE_CLIENT_CERTIFICATE_PATH)
+  -s          print a summary (default)
+  -d FILE     write an Excel workbook with a summary and one tab per container
+  -v          show the Azure CLI commands being run
+```
+
+For service principal authentication, client secrets come from `PHOTO_AZ_CLIENT_SECRET`, `AZURE_CLIENT_SECRET`, or the macOS Keychain (service `PHOTO_AZ_KEYCHAIN_SERVICE`, default `photo-tools-azure`). Secrets are not accepted as command-line options. The report uses a temporary Azure CLI profile for service principal sign-in, leaving your existing `az login` profile unchanged.
+
+```bash
+# Print per-container and account-wide totals
+report_azure.sh -a rpsphotography001
+
+# Save a workbook (the output directory must already exist)
+report_azure.sh -a rpsphotography001 -d ~/Desktop/storage-report.xlsx
+```
+
+Relative output paths are resolved from the current terminal directory. The report prints the full path of the workbook it writes.
+
+The tool requires Azure CLI and Python 3. Set `PHOTO_AZ_ACCOUNT` once in your shell profile to omit `-a`.
+
+---
+
 ### `cloud/upload_azure.sh` — Upload photo folders to Azure Blob Storage
 
 Uploads local folders into Azure Blob Storage containers, one container per category (e.g. `charlevoix`, `grand-haven`), using `azcopy`. Uploads can take hours, so files that fail are moved to a retry folder, and a retry run only uploads those files.
@@ -536,8 +573,9 @@ If both a certificate and a secret are set, the certificate is used.
 | Azure CLI           | `upload_azure.sh`                  | `brew install azure-cli`                 |
 | azcopy              | `upload_azure.sh`                  | `brew install azcopy`                    |
 | jq                  | `upload_azure.sh`                  | included with macOS 15+, else `brew install jq` |
+| Python 3            | `report_azure.sh`                  | `brew install python`                    |
 
-`install/install.sh` requires `cloud/upload_azure.sh`, checks and installs missing prerequisites first, then copies the tool scripts. Azure CLI, azcopy, and jq are required to run `upload_azure.sh`. To check or install prerequisites on their own:
+`install/install.sh` requires `cloud/upload_azure.sh`, checks and installs missing prerequisites first, then copies the tool scripts. Azure CLI, azcopy, and jq are required to run `upload_azure.sh`; Azure CLI and Python 3 are required for `report_azure.sh`. To check or install prerequisites on their own:
 
 ```bash
 tools/prereqs.sh -n        # check only: report what's missing

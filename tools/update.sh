@@ -57,7 +57,7 @@ else
 fi
 
 formulas=()
-for formula in exiftool azure-cli azcopy jq; do
+for formula in exiftool azure-cli azcopy jq python; do
     if "$BREW" list --formula "$formula" >/dev/null 2>&1; then
         formulas+=("$formula")
     else

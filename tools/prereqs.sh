@@ -5,8 +5,7 @@
 #   exiftool             Homebrew formula  (import_photos.sh, rename_nef.sh)
 #   Adobe DNG Converter  Homebrew cask     (import_photos.sh)
 #
-# upload_azure.sh:
-#   Azure CLI, azcopy, jq   Homebrew formulas (installed if missing)
+# Azure CLI, azcopy, jq, Python 3   Homebrew formulas (installed if missing)
 #
 # Anything missing is installed with Homebrew. Homebrew itself is not
 # installed automatically; if it's missing you're told how to get it.
@@ -123,8 +122,8 @@ if ! check_dng; then
     fi
 fi
 
-# ---------- Azure upload tools (upload_azure.sh) -----------------------------
-for t in "az:azure-cli:Azure CLI" "azcopy:azcopy:azcopy" "jq:jq:jq"; do
+# ---------- Azure tools -------------------------------------------------------
+for t in "az:azure-cli:Azure CLI" "azcopy:azcopy:azcopy" "jq:jq:jq" "python3:python:Python 3"; do
     cmd="${t%%:*}"; rest="${t#*:}"; formula="${rest%%:*}"; label="${rest#*:}"
     vlog "looking for $cmd on PATH (Homebrew formula $formula)"
     if p=$(command -v "$cmd" 2>/dev/null); then
