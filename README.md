@@ -18,7 +18,7 @@ photo-tools/
 ├── cloud/                    # cloud backup and sharing
 │   ├── upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
 │   ├── report_azure.sh       # read-only Azure Blob account statistics and Excel reports
-│   └── prune_nef.sh          # delete or archive NEF.zip files and NEFs that have a DNG in Azure Blob Storage
+│   └── prune_nef.sh          # delete or archive NEF.zip files and NEFs in Azure Blob Storage
 └── tools/                    # dependency management
   ├── prereqs.sh            # checks for / installs required tools (via Homebrew)
   └── update.sh             # updates Homebrew-managed dependencies
@@ -345,7 +345,7 @@ The tool requires Azure CLI and Python 3. Set `PHOTO_AZ_ACCOUNT` once in your sh
 Saves storage cost by pruning raw files that are no longer needed:
 
 1. Every `NEF.zip` blob is pruned.
-2. Every `.nef` blob that has a corresponding `.dng` blob in the same container is pruned. A DNG corresponds when it has the same file name apart from the extension (any letter case), in the same folder or in the `DNG/` folder next to the `NEF/` folder (`20261017/NEF/a.NEF` ↔ `20261017/DNG/a.dng`). Empty DNGs do not count, and NEFs without a DNG are kept. Because the match is by name, run it on names that still agree; a DNG renamed by `rename_dng.sh` no longer matches its NEF.
+2. Every `.nef` blob is pruned, whether or not a DNG exists. DNG files are not checked and no name matching is done.
 
 **Nothing is changed by default.** The tool lists what it found, then asks once whether to go ahead (it needs a terminal to ask on; without one it stops and changes nothing). Use `-y` to skip the question, or `-n` for a dry run that only reports. By default pruned blobs are deleted; with `-A` they are moved to the **Archive** access tier instead (the cheapest tier, but reading a blob again takes hours and has a 180-day minimum charge). Blobs already in the Archive tier are skipped.
 
@@ -359,7 +359,7 @@ prune_nef.sh [-a ACCOUNT] [-c CONTAINER ...] [-p PREFIX] [-A] [-n | -y] [-l] [-I
 
   -a ACCOUNT    storage account name (default: $PHOTO_AZ_ACCOUNT)
   -c CONTAINER  only this container; repeat for several (default: all)
-  -p PREFIX     only blobs whose name starts with PREFIX (must cover the NEF and DNG folders)
+  -p PREFIX     only blobs whose name starts with PREFIX
   -A            archive (Archive tier) instead of deleting
   -n            dry run: report containers, folders and counts, change nothing
   -y            do not ask; delete or archive right away
