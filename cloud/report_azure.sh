@@ -184,10 +184,12 @@ def cell_value(parent, reference, value):
 
 
 def worksheet_xml(rows):
-    worksheet = ET.Element("worksheet", {"xmlns": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"})
-    data = ET.SubElement(worksheet, "sheetData")
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    ET.register_namespace("", namespace)
+    worksheet = ET.Element("{" + namespace + "}worksheet")
+    data = ET.SubElement(worksheet, "{" + namespace + "}sheetData")
     for row_number, values in enumerate(rows, 1):
-        row = ET.SubElement(data, "row", {"r": str(row_number)})
+        row = ET.SubElement(data, "{" + namespace + "}row", {"r": str(row_number)})
         for column, value in enumerate(values, 1):
             if value is not None:
                 cell_value(row, column_name(column) + str(row_number), value)
@@ -232,31 +234,32 @@ def write_workbook(path, containers, blobs_by_container):
     rel_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
     package_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
     content_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
-    workbook = ET.Element("workbook", {"xmlns": ns, "xmlns:r": rel_ns})
-    sheet_list = ET.SubElement(workbook, "sheets")
-    root_relationships = ET.Element("Relationships", {"xmlns": package_ns})
-    content_types = ET.Element("Types", {"xmlns": content_ns})
-    ET.SubElement(content_types, "Default", {"Extension": "rels", "ContentType": "application/vnd.openxmlformats-package.relationships+xml"})
-    ET.SubElement(content_types, "Default", {"Extension": "xml", "ContentType": "application/xml"})
-    ET.SubElement(content_types, "Override", {"PartName": "/xl/workbook.xml", "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"})
-    ET.SubElement(root_relationships, "Relationship", {
+    ET.register_namespace("r", rel_ns)
+    workbook = ET.Element("{" + ns + "}workbook")
+    sheet_list = ET.SubElement(workbook, "{" + ns + "}sheets")
+    root_relationships = ET.Element("{" + package_ns + "}Relationships")
+    content_types = ET.Element("{" + content_ns + "}Types")
+    ET.SubElement(content_types, "{" + content_ns + "}Default", {"Extension": "rels", "ContentType": "application/vnd.openxmlformats-package.relationships+xml"})
+    ET.SubElement(content_types, "{" + content_ns + "}Default", {"Extension": "xml", "ContentType": "application/xml"})
+    ET.SubElement(content_types, "{" + content_ns + "}Override", {"PartName": "/xl/workbook.xml", "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"})
+    ET.SubElement(root_relationships, "{" + package_ns + "}Relationship", {
         "Id": "rId1",
         "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument",
         "Target": "xl/workbook.xml",
     })
-    relationships = ET.Element("Relationships", {"xmlns": package_ns})
+    relationships = ET.Element("{" + package_ns + "}Relationships")
     for index, (name, _) in enumerate(sheets, 1):
-        ET.SubElement(sheet_list, "sheet", {
+        ET.SubElement(sheet_list, "{" + ns + "}sheet", {
             "name": name,
             "sheetId": str(index),
             "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id": "rId{}".format(index),
         })
-        ET.SubElement(relationships, "Relationship", {
+        ET.SubElement(relationships, "{" + package_ns + "}Relationship", {
             "Id": "rId{}".format(index),
             "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet",
             "Target": "worksheets/sheet{}.xml".format(index),
         })
-        ET.SubElement(content_types, "Override", {
+        ET.SubElement(content_types, "{" + content_ns + "}Override", {
             "PartName": "/xl/worksheets/sheet{}.xml".format(index),
             "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml",
         })
@@ -267,9 +270,13 @@ def write_workbook(path, containers, blobs_by_container):
         with tempfile.NamedTemporaryFile(prefix=".azure-report-", suffix=".xlsx", dir=directory, delete=False) as handle:
             temporary = handle.name
         with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as workbook_file:
+            ET.register_namespace("", package_ns)
             workbook_file.writestr("_rels/.rels", ET.tostring(root_relationships, encoding="utf-8", xml_declaration=True))
+            ET.register_namespace("", content_ns)
             workbook_file.writestr("[Content_Types].xml", ET.tostring(content_types, encoding="utf-8", xml_declaration=True))
+            ET.register_namespace("", ns)
             workbook_file.writestr("xl/workbook.xml", ET.tostring(workbook, encoding="utf-8", xml_declaration=True))
+            ET.register_namespace("", package_ns)
             workbook_file.writestr("xl/_rels/workbook.xml.rels", ET.tostring(relationships, encoding="utf-8", xml_declaration=True))
             for index, (_, rows) in enumerate(sheets, 1):
                 workbook_file.writestr("xl/worksheets/sheet{}.xml".format(index), worksheet_xml(rows))
