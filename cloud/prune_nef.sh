@@ -73,7 +73,7 @@ die() { echo "Error: $*" >&2; exit 1; }
 while getopts ":a:c:p:DnylvhI:i:z:K:" opt; do
     case "$opt" in
         a) ACCOUNT="$OPTARG" ;;
-        c) CONTAINERS="$CONTAINERS$OPTARG$NL" ;;
+        c) [ -n "$OPTARG" ] || die "-c requires a non-empty container name."; CONTAINERS="$CONTAINERS$OPTARG$NL" ;;
         p) PREFIX="$OPTARG" ;;
         D) ARCHIVE=0 ;;
         n) DRY_RUN=1 ;;
