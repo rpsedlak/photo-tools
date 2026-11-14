@@ -307,17 +307,23 @@ For example, `IMG_1234.dng` might become `20261017-detroit-riverwalk-00008.dng` 
 
 Reports blob counts and total sizes for every container in a storage account. It only lists containers and blobs; it does not create, change, or delete anything in Azure. The default summary is printed to the terminal. Detail mode writes an Excel workbook with an overall **Summary** tab first, followed by one tab per container containing each blob's name, size, last-modified time, blob type, content type, and access tier.
 
-**Access:** Sign in with `az login`. The signed-in identity needs the **Storage Blob Data Reader** role on the storage account (or its containers). The report uses the existing Azure CLI identity and does not request or store account keys.
+**Access:** By default, the report uses your existing `az login` identity. You can also use a service principal with `-I sp`, using the same credentials and environment variables as `upload_azure.sh` (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Reader** role on the storage account (or its containers). The report does not request or store account keys.
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-report_azure.sh -a ACCOUNT [-s | -d FILE.xlsx] [-v]
+report_azure.sh -a ACCOUNT [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-s | -d FILE.xlsx] [-v]
 
   -a ACCOUNT  storage account name (default: $PHOTO_AZ_ACCOUNT)
+  -I user|sp  Azure identity (default: $PHOTO_AZ_AUTH, else user)
+  -i APP_ID   service principal app ID (PHOTO_AZ_CLIENT_ID or AZURE_CLIENT_ID)
+  -z TENANT   tenant ID (PHOTO_AZ_TENANT_ID or AZURE_TENANT_ID)
+  -K PEM      service principal certificate (PHOTO_AZ_CERT_PATH or AZURE_CLIENT_CERTIFICATE_PATH)
   -s          print a summary (default)
   -d FILE     write an Excel workbook with a summary and one tab per container
   -v          show the Azure CLI commands being run
 ```
+
+For service principal authentication, client secrets come from `PHOTO_AZ_CLIENT_SECRET`, `AZURE_CLIENT_SECRET`, or the macOS Keychain (service `PHOTO_AZ_KEYCHAIN_SERVICE`, default `photo-tools-azure`). Secrets are not accepted as command-line options. The report uses a temporary Azure CLI profile for service principal sign-in, leaving your existing `az login` profile unchanged.
 
 ```bash
 # Print per-container and account-wide totals

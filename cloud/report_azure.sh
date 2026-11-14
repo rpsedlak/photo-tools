@@ -3,12 +3,26 @@
 # report_azure.sh — report read-only statistics for an Azure Blob account.
 #
 # Usage:
-#   report_azure.sh [-a ACCOUNT] [-s | -d FILE] [-v]
+#   report_azure.sh [-a ACCOUNT] [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-s | -d FILE] [-v]
 #
 #   -a ACCOUNT  storage account name (default: $PHOTO_AZ_ACCOUNT)
+#   -I user|sp  Azure identity (default: $PHOTO_AZ_AUTH, else user)
+#   -i APP_ID   service principal app ID (default: $PHOTO_AZ_CLIENT_ID, else $AZURE_CLIENT_ID)
+#   -z TENANT   tenant ID (default: $PHOTO_AZ_TENANT_ID, else $AZURE_TENANT_ID)
+#   -K PEM      service principal certificate (default: $PHOTO_AZ_CERT_PATH,
+#               else $AZURE_CLIENT_CERTIFICATE_PATH)
 #   -s          print a summary to the terminal (default)
 #   -d FILE     write an Excel workbook with a summary and one tab per container
 #   -v          show the Azure CLI commands being run (default: off)
+#
+#   Service principal secrets come from PHOTO_AZ_CLIENT_SECRET, AZURE_CLIENT_SECRET,
+#   or the macOS Keychain (service: PHOTO_AZ_KEYCHAIN_SERVICE, default photo-tools-azure).
+#   Secrets cannot be passed on the command line.
+#
+# Environment:
+#   PHOTO_AZ_ACCOUNT, PHOTO_AZ_AUTH, PHOTO_AZ_CLIENT_ID, PHOTO_AZ_TENANT_ID,
+#   PHOTO_AZ_CERT_PATH, PHOTO_AZ_CLIENT_SECRET, PHOTO_AZ_KEYCHAIN_SERVICE
+#   (client ID, tenant, certificate and secret also fall back to their AZURE_* names)
 #
 # Requires: Azure CLI, Python 3.
 # Works with the stock macOS bash 3.2.
@@ -16,6 +30,11 @@
 set -u
 
 ACCOUNT="${PHOTO_AZ_ACCOUNT:-}"
+AUTH="${PHOTO_AZ_AUTH:-user}"
+CLIENT_ID="${PHOTO_AZ_CLIENT_ID:-${AZURE_CLIENT_ID:-}}"
+TENANT_ID="${PHOTO_AZ_TENANT_ID:-${AZURE_TENANT_ID:-}}"
+CERT_PATH="${PHOTO_AZ_CERT_PATH:-${AZURE_CLIENT_CERTIFICATE_PATH:-}}"
+KEYCHAIN_SERVICE="${PHOTO_AZ_KEYCHAIN_SERVICE:-photo-tools-azure}"
 MODE="summary"
 MODE_SET=0
 OUTPUT=""
@@ -24,9 +43,13 @@ VERBOSE=0
 usage() { sed -n '/^# Usage:/,/^# Requires/p' "$0" | sed -e 's/^# \{0,1\}//' -e '$d' >&2; exit 1; }
 die() { echo "Error: $*" >&2; exit 1; }
 
-while getopts ":a:sd:vh" opt; do
+while getopts ":a:sd:vI:i:z:K:h" opt; do
     case "$opt" in
         a) ACCOUNT="$OPTARG" ;;
+        I) AUTH="$OPTARG" ;;
+        i) CLIENT_ID="$OPTARG" ;;
+        z) TENANT_ID="$OPTARG" ;;
+        K) CERT_PATH="$OPTARG" ;;
         s) [ "$MODE_SET" -eq 0 ] || usage; MODE="summary"; MODE_SET=1 ;;
         d) [ "$MODE_SET" -eq 0 ] || usage; MODE="detail"; OUTPUT="$OPTARG"; MODE_SET=1 ;;
         v) VERBOSE=1 ;;
@@ -41,12 +64,57 @@ case "$ACCOUNT" in *[!a-z0-9]*) die "invalid storage account name '$ACCOUNT'." ;
 if [ "${#ACCOUNT}" -lt 3 ] || [ "${#ACCOUNT}" -gt 24 ]; then
     die "storage account names must be 3–24 lowercase letters or digits."
 fi
+case "$AUTH" in user|sp) ;; *) die "-I must be 'user' or 'sp', got '$AUTH'." ;; esac
+if [ "$AUTH" = "sp" ]; then
+    missing=""
+    [ -n "$CLIENT_ID" ] || missing="$missing
+  app (client) ID: -i, PHOTO_AZ_CLIENT_ID or AZURE_CLIENT_ID"
+    [ -n "$TENANT_ID" ] || missing="$missing
+  tenant ID:       -z, PHOTO_AZ_TENANT_ID or AZURE_TENANT_ID"
+    [ -z "$missing" ] || die "service principal sign-in (-I sp) needs:$missing"
+fi
 if [ "$MODE" = "detail" ] && [ -z "$OUTPUT" ]; then
     die "an output file is required with -d."
 fi
 
 command -v az >/dev/null 2>&1 || die "Azure CLI (az) is required."
 command -v python3 >/dev/null 2>&1 || die "Python 3 is required."
+
+AZ_DIR=""
+cleanup() { [ -z "$AZ_DIR" ] || rm -rf "$AZ_DIR"; }
+trap cleanup EXIT
+
+if [ "$AUTH" = "sp" ]; then
+    SECRET=""
+    if [ -n "$CERT_PATH" ]; then
+        case "$CERT_PATH" in /*) ;; *) CERT_PATH="$PWD/$CERT_PATH" ;; esac
+        if [ ! -f "$CERT_PATH" ] || [ ! -r "$CERT_PATH" ]; then
+            die "certificate '$CERT_PATH' not found or not readable."
+        fi
+    elif [ -n "${PHOTO_AZ_CLIENT_SECRET:-}" ]; then
+        SECRET="$PHOTO_AZ_CLIENT_SECRET"
+    elif [ -n "${AZURE_CLIENT_SECRET:-}" ]; then
+        SECRET="$AZURE_CLIENT_SECRET"
+    else
+        SECRET=$(security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$CLIENT_ID" -w 2>/dev/null || true)
+        [ -n "$SECRET" ] || die "no credential for service principal $CLIENT_ID. Provide a certificate with -K, PHOTO_AZ_CERT_PATH or AZURE_CLIENT_CERTIFICATE_PATH; a client secret with PHOTO_AZ_CLIENT_SECRET or AZURE_CLIENT_SECRET; or a Keychain item (service '$KEYCHAIN_SERVICE')."
+    fi
+
+    AZ_DIR=$(mktemp -d "${TMPDIR:-/tmp}/photo-report-az.XXXXXX") || die "cannot create a temporary Azure CLI profile."
+    chmod 700 "$AZ_DIR"
+    export AZURE_CONFIG_DIR="$AZ_DIR"
+    if [ -n "$CERT_PATH" ]; then
+        az login --service-principal -u "$CLIENT_ID" --tenant "$TENANT_ID" \
+            --certificate "$CERT_PATH" --allow-no-subscriptions -o none 2>"$AZ_DIR/login.err"
+    else
+        az login --service-principal -u "$CLIENT_ID" --tenant "$TENANT_ID" \
+            -p "$SECRET" --allow-no-subscriptions -o none 2>"$AZ_DIR/login.err"
+    fi || {
+        echo "Error: service principal sign-in failed:" >&2
+        sed -e '/^[[:space:]]*$/d' "$AZ_DIR/login.err" | head -n 5 | sed 's/^/  /' >&2
+        exit 1
+    }
+fi
 
 python3 - "$ACCOUNT" "$MODE" "$OUTPUT" "$VERBOSE" <<'PY'
 import json
