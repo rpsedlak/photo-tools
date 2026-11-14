@@ -197,7 +197,7 @@ def worksheet_xml(rows):
 
 
 def sheet_names(containers):
-    used = {"summary"}
+    used = {"summary", "history"}
     names = []
     for container in containers:
         base = re.sub(r"[\[\]:*?/\\]", "_", container)[:31].strip("'") or "Container"
