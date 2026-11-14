@@ -19,7 +19,8 @@ photo-tools/
 │   ├── upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
 │   ├── report_azure.sh       # read-only Azure Blob account statistics and Excel reports
 │   ├── prune_nef.sh          # archive (or delete) NEF.zip files and NEFs in Azure Blob Storage
-│   └── archive_container.sh  # move a whole named Azure Blob container to the Archive tier
+│   ├── archive_container.sh  # move a whole named Azure Blob container to the Archive tier
+│   └── unarchive_container.sh # move an archived Azure Blob container back to Hot (or Cool/Cold)
 └── tools/                    # dependency management
   ├── prereqs.sh            # checks for / installs required tools (via Homebrew)
   └── update.sh             # updates Homebrew-managed dependencies
@@ -419,6 +420,43 @@ Exit status: `0` done (or nothing to do, or you declined), `2` some blobs could 
 
 ---
 
+### `cloud/unarchive_container.sh` — Unarchive a whole Azure Blob container
+
+The reverse of `archive_container.sh`: moves every blob in one named container that is in the **Archive** tier back to an online tier, **Hot** by default (use `-t` to choose `Hot`, `Cool` or `Cold`). Azure rehydrates archived blobs in the background, which takes hours (up to 15 hours at standard priority), and a blob stays in the Archive tier until that finishes. Blobs that are not in the Archive tier, blobs already being rehydrated, and blobs that cannot be archived (only block blobs can) are skipped and counted in the report. Nothing is deleted.
+
+**Nothing is changed by default.** The tool lists what it found (each folder with its blob count and size, plus totals), then asks once whether to go ahead (it needs a terminal to ask on; without one it stops and changes nothing). Use `-y` to skip the question, or `-n` for a dry run that only reports. Add `-l` to list every blob name.
+
+**Access:** The same sign-in, options, environment variables and secret sources as `archive_container.sh` (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Contributor** role.
+
+**Usage** (installed in `/usr/local/bin`):
+```bash
+unarchive_container.sh [-a ACCOUNT] -c CONTAINER [-t TIER] [-n | -y] [-l] [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
+
+  -a ACCOUNT    storage account name (default: $PHOTO_AZ_ACCOUNT)
+  -c CONTAINER  the container to unarchive (required)
+  -t TIER       tier to move the blobs to: Hot, Cool or Cold (default: Hot)
+  -n            dry run: report folders and counts, change nothing
+  -y            do not ask; unarchive right away
+  -l            list every blob, not just counts
+  -I, -i, -z, -K  service principal options, as for upload_azure.sh
+  -v            show the Azure CLI commands being run
+```
+
+```bash
+# See what would be unarchived
+unarchive_container.sh -a rpsphotography001 -c charlevoix -n
+
+# Move to Hot, after one confirmation
+unarchive_container.sh -a rpsphotography001 -c charlevoix
+
+# Move to Cool without asking
+unarchive_container.sh -a rpsphotography001 -c charlevoix -t Cool -y
+```
+
+Exit status: `0` done (or nothing to do, or you declined), `2` some blobs could not be moved, `1` error.
+
+---
+
 ### `cloud/upload_azure.sh` — Upload photo folders to Azure Blob Storage
 
 Uploads local folders into Azure Blob Storage containers, one container per category (e.g. `charlevoix`, `grand-haven`), using `azcopy`. Uploads can take hours, so files that fail are moved to a retry folder, and a retry run only uploads those files.
@@ -653,9 +691,9 @@ If both a certificate and a secret are set, the certificate is used.
 | Azure CLI           | `upload_azure.sh`                  | `brew install azure-cli`                 |
 | azcopy              | `upload_azure.sh`                  | `brew install azcopy`                    |
 | jq                  | `upload_azure.sh`                  | included with macOS 15+, else `brew install jq` |
-| Python 3            | `report_azure.sh`, `prune_nef.sh`, `archive_container.sh` | `brew install python`                    |
+| Python 3            | `report_azure.sh`, `prune_nef.sh`, `archive_container.sh`, `unarchive_container.sh` | `brew install python`                    |
 
-`install/install.sh` requires `cloud/upload_azure.sh`, checks and installs missing prerequisites first, then copies the tool scripts. Azure CLI, azcopy, and jq are required to run `upload_azure.sh`; Azure CLI and Python 3 are required for `report_azure.sh`, `prune_nef.sh` and `archive_container.sh`. To check or install prerequisites on their own:
+`install/install.sh` requires `cloud/upload_azure.sh`, checks and installs missing prerequisites first, then copies the tool scripts. Azure CLI, azcopy, and jq are required to run `upload_azure.sh`; Azure CLI and Python 3 are required for `report_azure.sh`, `prune_nef.sh`, `archive_container.sh` and `unarchive_container.sh`. To check or install prerequisites on their own:
 
 ```bash
 tools/prereqs.sh -n        # check only: report what's missing
