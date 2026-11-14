@@ -293,26 +293,34 @@ def main():
     )
     containers = sorted(container["name"] for container in containers_data)
     blobs_by_container = []
+    container_totals = []
     for container in containers:
         blobs_data = az_json(
             "storage", "blob", "list", "--account-name", ACCOUNT,
             "--container-name", container, "--auth-mode", "login", "--num-results", "*",
         )
-        blobs = [blob_fields(blob) for blob in blobs_data]
-        blobs_by_container.append(blobs)
+        count = len(blobs_data)
+        if MODE == "detail":
+            blobs = [blob_fields(blob) for blob in blobs_data]
+            size_bytes = sum(fields[1] for fields in blobs)
+            blobs_by_container.append(blobs)
+        else:
+            size_bytes = sum(blob_fields(blob)[1] for blob in blobs_data)
+        container_totals.append((count, size_bytes))
+        del blobs_data
         if VERBOSE:
-            print("verbose: {}: {} blobs".format(container, len(blobs)), file=sys.stderr)
+            print("verbose: {}: {} blobs".format(container, count), file=sys.stderr)
 
-    total_blobs = sum(len(blobs) for blobs in blobs_by_container)
-    total_bytes = sum(fields[1] for blobs in blobs_by_container for fields in blobs)
+    total_blobs = sum(count for count, _ in container_totals)
+    total_bytes = sum(size_bytes for _, size_bytes in container_totals)
     if MODE == "detail":
         write_workbook(OUTPUT, containers, blobs_by_container)
         print("Excel report written to {}".format(os.path.abspath(OUTPUT)))
     print("Azure Storage Blob report: {}".format(ACCOUNT))
     print("Containers: {} | Blobs: {} | Total size: {:.3f} GB".format(len(containers), total_blobs, gigabytes(total_bytes)))
     print("{:<32} {:>12} {:>20}".format("Container", "Blobs", "Size (GB)"))
-    for container, blobs in zip(containers, blobs_by_container):
-        print("{:<32} {:>12} {:>20.3f}".format(container, len(blobs), gigabytes(sum(fields[1] for fields in blobs))))
+    for container, (count, size_bytes) in zip(containers, container_totals):
+        print("{:<32} {:>12} {:>20.3f}".format(container, count, gigabytes(size_bytes)))
 
 
 try:
