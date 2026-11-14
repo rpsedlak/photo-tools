@@ -97,9 +97,9 @@ class PruneNefTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Container: alpha", result.stdout)
         self.assertIn("Container: beta", result.stdout)
-        self.assertIn("Total: 7 blob(s)", result.stdout)
+        self.assertIn("Total: 5 blob(s)", result.stdout)
         self.assertIn("to archive", result.stdout)
-        self.assertNotIn("kept", result.stdout)
+        self.assertIn("NEF files kept (no matching non-empty DNG): 2", result.stdout)
         self.assertNotIn("a.NEF", result.stdout)
         self.assertEqual(self.calls(), [])
 
@@ -107,7 +107,8 @@ class PruneNefTest(unittest.TestCase):
         result = self.run_script("-n", "-l")
         self.assertIn("20261017/NEF/a.NEF (NEF,", result.stdout)
         self.assertIn("20261017/NEF.zip (NEF.zip", result.stdout)
-        self.assertIn("20261017/NEF/lonely.NEF (NEF,", result.stdout)
+        self.assertIn("20261017/NEF/lonely.NEF (kept)", result.stdout)
+        self.assertIn("20261018/NEF/empty.NEF (kept)", result.stdout)
         self.assertNotIn(".dng", result.stdout.lower())
 
     def test_nothing_deleted_without_terminal_or_force(self):
@@ -116,15 +117,13 @@ class PruneNefTest(unittest.TestCase):
         self.assertIn("-y", result.stderr)
         self.assertEqual(self.calls(), [])
 
-    def test_force_deletes_every_nef_and_nef_zip_without_dng_matching(self):
+    def test_force_deletes_only_matched_nefs_and_nef_zip(self):
         result = self.run_script("-y", "-D")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls(), sorted([
             "storage blob delete alpha 20261017/NEF.zip",
             "storage blob delete alpha 20261017/NEF/a.NEF",
             "storage blob delete alpha 20261017/NEF/b.NEF",
-            "storage blob delete alpha 20261017/NEF/lonely.NEF",
-            "storage blob delete alpha 20261018/NEF/empty.NEF",
             "storage blob delete alpha 20261019/NEF/done.NEF",
             "storage blob delete beta flat.nef",
             "storage blob delete beta x/old.nef.zip",
@@ -134,10 +133,15 @@ class PruneNefTest(unittest.TestCase):
         result = self.run_script("-y")
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.calls()
-        self.assertEqual(len(calls), 7)
-        self.assertTrue(all(call.startswith("storage blob set-tier") for call in calls))
-        self.assertFalse(any("done.NEF" in call for call in calls))
+        self.assertEqual(calls, sorted([
+            "storage blob set-tier alpha 20261017/NEF.zip",
+            "storage blob set-tier alpha 20261017/NEF/a.NEF",
+            "storage blob set-tier alpha 20261017/NEF/b.NEF",
+            "storage blob set-tier beta flat.nef",
+            "storage blob set-tier beta x/old.nef.zip",
+        ]))
         self.assertIn("Already in the Archive tier (skipped): 1", result.stdout)
+        self.assertIn("NEF files kept (no matching non-empty DNG): 2", result.stdout)
 
     def test_default_prompt_does_not_archive_when_declined(self):
         master, slave = pty.openpty()
@@ -160,7 +164,7 @@ class PruneNefTest(unittest.TestCase):
         ])
 
     def test_prompt_answer_no_cancels_and_yes_proceeds(self):
-        for answer, expected in ((b"n\n", 0), (b"y\n", 8)):
+        for answer, expected in ((b"n\n", 0), (b"y\n", 6)):
             log = self.root / "calls.log"
             if log.exists():
                 log.unlink()
@@ -183,6 +187,44 @@ class PruneNefTest(unittest.TestCase):
             del BLOBS["beta"][-2:]
         self.assertEqual(result.returncode, 2)
         self.assertIn("beta/fail.nef", result.stderr)
+
+    def test_matching_is_case_insensitive_scoped_and_requires_nonempty_dng(self):
+        blobs = {
+            "alpha": [
+                blob("NEF/root.NEF"), blob("dNg/ROOT.dng"),
+                blob("event/NeF/sibling.NEF"), blob("EVENT/dnG/SIBLING.DNG"),
+                blob("folder/same.NEF"), blob("FOLDER/SAME.dng"),
+                blob("event/NEF/other.nef"), blob("other/DNG/other.dng"),
+                blob("event/NEF/cross.nef"), blob("event/NEF/zero.nef"),
+                blob("event/DNG/zero.dng", 0),
+                blob("event/NEF/missing.nef"),
+                {"name": "event/DNG/missing.dng", "properties": {}},
+                blob("event/notNEF/wrong.nef"), blob("event/DNG/wrong.dng"),
+                blob("event/NEF/already.nef", tier="Archive"),
+            ],
+            "beta": [blob("event/DNG/cross.dng")],
+        }
+        (self.root / "blobs.json").write_text(json.dumps(blobs))
+        for mode in ((), ("-D",)):
+            with self.subTest(mode=mode):
+                result = self.run_script("-y", *mode)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("NEF files kept (no matching non-empty DNG): 6", result.stdout)
+                action = "delete" if mode else "set-tier"
+                self.assertEqual(self.calls(), sorted([
+                    "storage blob {} alpha NEF/root.NEF".format(action),
+                    "storage blob {} alpha event/NeF/sibling.NEF".format(action),
+                    "storage blob {} alpha folder/same.NEF".format(action),
+                ]))
+                (self.root / "calls.log").unlink()
+
+    def test_prefix_excluding_dng_keeps_nefs_in_both_modes(self):
+        for mode in ((), ("-D",)):
+            with self.subTest(mode=mode):
+                result = self.run_script("-y", "-c", "alpha", "-p", "20261017/NEF/", *mode)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("NEF files kept (no matching non-empty DNG): 3", result.stdout)
+                self.assertEqual(self.calls(), [])
 
 
 if __name__ == "__main__":

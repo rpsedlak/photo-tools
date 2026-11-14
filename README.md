@@ -345,11 +345,13 @@ The tool requires Azure CLI and Python 3. Set `PHOTO_AZ_ACCOUNT` once in your sh
 Saves storage cost by pruning raw files that are no longer needed:
 
 1. Every `NEF.zip` blob is pruned.
-2. Every `.nef` blob is pruned, whether or not a DNG exists. DNG files are not checked and no name matching is done.
+2. A `.nef` blob is pruned only if a non-empty `.dng` in the same container has the same name apart from the extension, ignoring case. The DNG must be in the same folder or in the `DNG/` folder beside `NEF/`. Unmatched NEFs are kept and counted.
+
+Matching is by name, so run this tool before renaming DNGs with `rename_dng.sh`. When using `-p`, choose a prefix that includes both the NEF and DNG folders; DNGs outside the prefix are not considered.
 
 **Nothing is changed by default.** The tool lists what it found, then asks once whether to go ahead (it needs a terminal to ask on; without one it stops and changes nothing). Use `-y` to skip the question, or `-n` for a dry run that only reports. By default pruned blobs are moved to the **Archive** access tier (the cheapest tier, but reading a blob again takes hours and has a 180-day minimum charge); blobs already in the Archive tier are skipped. With `-D` they are deleted permanently instead.
 
-The report shows, for each container, each folder with the number of `NEF.zip` and `NEF` blobs to prune and their size, plus totals. Add `-l` to list every blob name.
+The report shows, for each container, each folder with the number of `NEF.zip` and `NEF` blobs to prune and their size, plus totals and the number of unmatched NEFs kept. Add `-l` to list planned and kept blob names.
 
 **Access:** The same sign-in as `upload_azure.sh`: your `az login` identity, or a service principal with `-I sp` using the same options, environment variables and secret sources (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Contributor** role, and listing all containers needs it at storage-account scope (use `-c` for container-scoped assignments).
 

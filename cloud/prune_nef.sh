@@ -4,8 +4,8 @@
 #                no longer needed, to save storage costs.
 #
 #   RULES    1. Every NEF.zip blob (a name ending in NEF.zip) is pruned.
-#            2. Every .nef blob (any letter case) is pruned. DNG files are
-#               not looked at: there is no name matching.
+#            2. A .nef blob is pruned only when a non-empty matching .dng is
+#               in the same folder or the DNG/ folder beside NEF/, ignoring case.
 #   SAFETY   Nothing is changed by default. The tool shows what it found, then
 #            asks once before acting (it needs a terminal to ask on). Use -y to
 #            skip the question, or -n to only report.
@@ -20,7 +20,7 @@
 #
 #   -a ACCOUNT    storage account name (default: $PHOTO_AZ_ACCOUNT)
 #   -c CONTAINER  only this container; repeat for several (default: all)
-#   -p PREFIX     only blobs whose name starts with PREFIX, e.g. 2026/20261017/
+#   -p PREFIX     only blobs whose name starts with PREFIX; include NEF and DNG folders
 #   -D            delete permanently instead of archiving (the default)
 #   -n            dry run: report containers, folders and counts, change nothing
 #   -y            do not ask; archive (or with -D, delete) right away
@@ -159,7 +159,6 @@ HAVE_TTY=0; [ -t 0 ] && HAVE_TTY=1
 PY=""
 read -r -d '' PY <<'PY' || true
 import json
-import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -204,8 +203,13 @@ def split_name(name):
 
 
 def classify(blobs):
-    """Return (pruned, already_archived). pruned is a list of (name, size, reason)."""
-    pruned, archived = [], 0
+    """Return pruned blobs, already archived count, and unmatched NEF names."""
+    dngs = {
+        blob.get("name", "").lower()
+        for blob in blobs
+        if blob.get("name", "").lower().endswith(".dng") and properties_of(blob)[0] > 0
+    }
+    pruned, archived, kept = [], 0, []
     for blob in blobs:
         name = blob.get("name", "")
         lower = name.lower()
@@ -214,6 +218,13 @@ def classify(blobs):
         if base == "nef.zip" or base.endswith(".nef.zip"):
             reason = "NEF.zip"
         elif lower.endswith(".nef"):
+            folder, _, filename = lower.rpartition("/")
+            same_folder = lower[:-4] + ".dng"
+            parent, separator, leaf = folder.rpartition("/")
+            sibling = (parent + separator if separator else "") + "dng/" + filename[:-4] + ".dng"
+            if same_folder not in dngs and not (leaf == "nef" and sibling in dngs):
+                kept.append(name)
+                continue
             reason = "NEF"
         else:
             continue
@@ -221,7 +232,7 @@ def classify(blobs):
             archived += 1
             continue
         pruned.append((name, size, reason))
-    return pruned, archived
+    return pruned, archived, kept
 
 
 def gigabytes(size_bytes):
@@ -257,15 +268,21 @@ def main():
         print("Only blobs starting with: {}".format(PREFIX))
     plan = []
     total_archived = 0
+    total_kept = 0
     for container in containers:
         args = ["storage", "blob", "list", "--account-name", ACCOUNT, "--container-name", container,
                 "--auth-mode", "login", "--num-results", "*"]
         if PREFIX:
             args += ["--prefix", PREFIX]
-        pruned, archived = classify(az_json(*args))
+        pruned, archived, kept = classify(az_json(*args))
         total_archived += archived
+        total_kept += len(kept)
         print("")
         print("Container: {}".format(container))
+        print("  NEF files kept (no matching non-empty DNG): {}".format(len(kept)))
+        if LIST:
+            for name in sorted(kept):
+                print("    {} (kept)".format(name))
         if not pruned:
             print("  nothing to {}".format("archive" if ARCHIVE else "delete"))
             continue
@@ -286,6 +303,7 @@ def main():
     total_bytes = sum(size for _, _, size in plan)
     print("")
     print("Total: {} blob(s), {:.3f} GB to {}".format(len(plan), gigabytes(total_bytes), "archive" if ARCHIVE else "delete"))
+    print("NEF files kept (no matching non-empty DNG): {}".format(total_kept))
     if ARCHIVE:
         print("Already in the Archive tier (skipped): {}".format(total_archived))
     if not plan:
