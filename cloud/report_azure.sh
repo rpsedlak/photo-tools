@@ -280,6 +280,7 @@ def write_workbook(path, containers, blobs_by_container):
             workbook_file.writestr("xl/_rels/workbook.xml.rels", ET.tostring(relationships, encoding="utf-8", xml_declaration=True))
             for index, (_, rows) in enumerate(sheets, 1):
                 workbook_file.writestr("xl/worksheets/sheet{}.xml".format(index), worksheet_xml(rows))
+        os.chmod(temporary, 0o644)
         os.replace(temporary, path)
     except OSError:
         if temporary and os.path.exists(temporary):
