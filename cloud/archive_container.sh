@@ -188,15 +188,15 @@ def split_name(name):
 
 
 def classify(blobs):
-    """Return blobs to archive, already archived count, and non-block blob names."""
-    planned, archived, unsupported = [], 0, []
+    """Return blobs to archive, already archived names, and non-block blob names."""
+    planned, archived, unsupported = [], [], []
     for blob in blobs:
         name = blob.get("name", "")
         size, tier, kind = properties_of(blob)
         if kind.lower() != "blockblob":
             unsupported.append(name)
         elif tier.lower() == "archive":
-            archived += 1
+            archived.append(name)
         else:
             planned.append((name, size))
     return planned, archived, unsupported
@@ -236,13 +236,15 @@ def main():
     else:
         print("  nothing to archive")
     if LIST:
+        for name in sorted(archived):
+            print("    {} (already in Archive tier, skipped)".format(name))
         for name in sorted(unsupported):
             print("    {} (skipped, not a block blob)".format(name))
 
     total_bytes = sum(size for _, size in plan)
     print("")
     print("Total: {} blob(s), {:.3f} GB to archive".format(len(plan), gigabytes(total_bytes)))
-    print("Already in the Archive tier (skipped): {}".format(archived))
+    print("Already in the Archive tier (skipped): {}".format(len(archived)))
     print("Blobs that cannot be archived (skipped): {}".format(len(unsupported)))
     if not plan:
         return 0

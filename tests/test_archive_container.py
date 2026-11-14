@@ -119,6 +119,7 @@ class ArchiveContainerTest(unittest.TestCase):
     def test_list_shows_blob_names(self):
         result = self.run_script("-c", "alpha", "-n", "-l")
         self.assertIn("20261017/a.jpg", result.stdout)
+        self.assertIn("20261018/c.jpg (already in Archive tier, skipped)", result.stdout)
         self.assertIn("20261018/page.vhd (skipped, not a block blob)", result.stdout)
 
     def test_nothing_changed_without_terminal_or_force(self):
