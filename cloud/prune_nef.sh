@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# prune_nef.sh — remove (or archive) NEF files in an Azure Blob account that are
+# prune_nef.sh — archive (or remove) NEF files in an Azure Blob account that are
 #                no longer needed, to save storage costs.
 #
 #   RULES    1. Every NEF.zip blob (a name ending in NEF.zip) is pruned.
@@ -9,20 +9,21 @@
 #   SAFETY   Nothing is changed by default. The tool shows what it found, then
 #            asks once before acting (it needs a terminal to ask on). Use -y to
 #            skip the question, or -n to only report.
-#   PRUNE    Pruned blobs are deleted, or with -A moved to the Archive access
-#            tier (cheapest storage; reading a blob again takes hours and has a
-#            180 day minimum charge). Blobs already archived are skipped.
+#   PRUNE    Pruned blobs are moved to the Archive access tier (cheapest
+#            storage; reading a blob again takes hours and has a 180 day
+#            minimum charge). Blobs already archived are skipped. With -D they
+#            are deleted permanently instead.
 #
 # Usage:
-#   prune_nef.sh [-a ACCOUNT] [-c CONTAINER ...] [-p PREFIX] [-A] [-n | -y] [-l]
+#   prune_nef.sh [-a ACCOUNT] [-c CONTAINER ...] [-p PREFIX] [-D] [-n | -y] [-l]
 #                [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
 #
 #   -a ACCOUNT    storage account name (default: $PHOTO_AZ_ACCOUNT)
 #   -c CONTAINER  only this container; repeat for several (default: all)
 #   -p PREFIX     only blobs whose name starts with PREFIX, e.g. 2026/20261017/
-#   -A            archive (set the Archive tier) instead of deleting
+#   -D            delete permanently instead of archiving (the default)
 #   -n            dry run: report containers, folders and counts, change nothing
-#   -y            do not ask; delete or archive right away
+#   -y            do not ask; archive (or with -D, delete) right away
 #   -l            list every blob (not just the counts per folder)
 #   -I user|sp    Azure identity (default: $PHOTO_AZ_AUTH, else user)
 #   -i APP_ID     service principal app ID (default: $PHOTO_AZ_CLIENT_ID, else $AZURE_CLIENT_ID)
@@ -58,7 +59,7 @@ CERT_PATH="${PHOTO_AZ_CERT_PATH:-${AZURE_CLIENT_CERTIFICATE_PATH:-}}"
 KEYCHAIN_SERVICE="${PHOTO_AZ_KEYCHAIN_SERVICE:-photo-tools-azure}"
 CONTAINERS=""
 PREFIX=""
-ARCHIVE=0
+ARCHIVE=1
 DRY_RUN=0
 FORCE=0
 LIST=0
@@ -69,12 +70,12 @@ NL='
 usage() { sed -n '/^# Usage:/,/^# Environment/p' "$0" | sed -e 's/^# \{0,1\}//' -e '$d' >&2; exit 1; }
 die() { echo "Error: $*" >&2; exit 1; }
 
-while getopts ":a:c:p:AnylvhI:i:z:K:" opt; do
+while getopts ":a:c:p:DnylvhI:i:z:K:" opt; do
     case "$opt" in
         a) ACCOUNT="$OPTARG" ;;
         c) CONTAINERS="$CONTAINERS$OPTARG$NL" ;;
         p) PREFIX="$OPTARG" ;;
-        A) ARCHIVE=1 ;;
+        D) ARCHIVE=0 ;;
         n) DRY_RUN=1 ;;
         y) FORCE=1 ;;
         l) LIST=1 ;;

@@ -18,7 +18,7 @@ photo-tools/
 ├── cloud/                    # cloud backup and sharing
 │   ├── upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
 │   ├── report_azure.sh       # read-only Azure Blob account statistics and Excel reports
-│   └── prune_nef.sh          # delete or archive NEF.zip files and NEFs in Azure Blob Storage
+│   └── prune_nef.sh          # archive (or delete) NEF.zip files and NEFs in Azure Blob Storage
 └── tools/                    # dependency management
   ├── prereqs.sh            # checks for / installs required tools (via Homebrew)
   └── update.sh             # updates Homebrew-managed dependencies
@@ -340,14 +340,14 @@ The tool requires Azure CLI and Python 3. Set `PHOTO_AZ_ACCOUNT` once in your sh
 
 ---
 
-### `cloud/prune_nef.sh` — Delete or archive unneeded NEFs in Azure Blob Storage
+### `cloud/prune_nef.sh` — Archive or delete unneeded NEFs in Azure Blob Storage
 
 Saves storage cost by pruning raw files that are no longer needed:
 
 1. Every `NEF.zip` blob is pruned.
 2. Every `.nef` blob is pruned, whether or not a DNG exists. DNG files are not checked and no name matching is done.
 
-**Nothing is changed by default.** The tool lists what it found, then asks once whether to go ahead (it needs a terminal to ask on; without one it stops and changes nothing). Use `-y` to skip the question, or `-n` for a dry run that only reports. By default pruned blobs are deleted; with `-A` they are moved to the **Archive** access tier instead (the cheapest tier, but reading a blob again takes hours and has a 180-day minimum charge). Blobs already in the Archive tier are skipped.
+**Nothing is changed by default.** The tool lists what it found, then asks once whether to go ahead (it needs a terminal to ask on; without one it stops and changes nothing). Use `-y` to skip the question, or `-n` for a dry run that only reports. By default pruned blobs are moved to the **Archive** access tier (the cheapest tier, but reading a blob again takes hours and has a 180-day minimum charge); blobs already in the Archive tier are skipped. With `-D` they are deleted permanently instead.
 
 The report shows, for each container, each folder with the number of `NEF.zip` and `NEF` blobs to prune and their size, plus totals. Add `-l` to list every blob name.
 
@@ -355,14 +355,14 @@ The report shows, for each container, each folder with the number of `NEF.zip` a
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-prune_nef.sh [-a ACCOUNT] [-c CONTAINER ...] [-p PREFIX] [-A] [-n | -y] [-l] [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
+prune_nef.sh [-a ACCOUNT] [-c CONTAINER ...] [-p PREFIX] [-D] [-n | -y] [-l] [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
 
   -a ACCOUNT    storage account name (default: $PHOTO_AZ_ACCOUNT)
   -c CONTAINER  only this container; repeat for several (default: all)
   -p PREFIX     only blobs whose name starts with PREFIX
-  -A            archive (Archive tier) instead of deleting
+  -D            delete permanently instead of archiving (the default)
   -n            dry run: report containers, folders and counts, change nothing
-  -y            do not ask; delete or archive right away
+  -y            do not ask; archive (or with -D, delete) right away
   -l            list every blob, not just counts
   -I, -i, -z, -K  service principal options, as for upload_azure.sh
   -v            show the Azure CLI commands being run
@@ -372,11 +372,11 @@ prune_nef.sh [-a ACCOUNT] [-c CONTAINER ...] [-p PREFIX] [-A] [-n | -y] [-l] [-I
 # See what would be removed, with file names
 prune_nef.sh -a rpsphotography001 -n -l
 
-# Delete, after one confirmation
+# Archive, after one confirmation
 prune_nef.sh -a rpsphotography001 -c charlevoix
 
-# Archive one date folder instead of deleting, without asking
-prune_nef.sh -a rpsphotography001 -c charlevoix -p 2026/20261017/ -A -y
+# Delete one date folder's NEFs permanently, without asking
+prune_nef.sh -a rpsphotography001 -c charlevoix -p 2026/20261017/ -D -y
 ```
 
 Exit status: `0` done (or nothing to do, or you declined), `2` some blobs could not be pruned, `1` error.

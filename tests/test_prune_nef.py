@@ -97,7 +97,8 @@ class PruneNefTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Container: alpha", result.stdout)
         self.assertIn("Container: beta", result.stdout)
-        self.assertIn("Total: 8 blob(s)", result.stdout)
+        self.assertIn("Total: 7 blob(s)", result.stdout)
+        self.assertIn("to archive", result.stdout)
         self.assertNotIn("kept", result.stdout)
         self.assertNotIn("a.NEF", result.stdout)
         self.assertEqual(self.calls(), [])
@@ -116,7 +117,7 @@ class PruneNefTest(unittest.TestCase):
         self.assertEqual(self.calls(), [])
 
     def test_force_deletes_every_nef_and_nef_zip_without_dng_matching(self):
-        result = self.run_script("-y")
+        result = self.run_script("-y", "-D")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls(), sorted([
             "storage blob delete alpha 20261017/NEF.zip",
@@ -129,8 +130,8 @@ class PruneNefTest(unittest.TestCase):
             "storage blob delete beta x/old.nef.zip",
         ]))
 
-    def test_archive_sets_tier_and_skips_archived(self):
-        result = self.run_script("-y", "-A")
+    def test_archive_is_the_default_and_skips_archived(self):
+        result = self.run_script("-y")
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.calls()
         self.assertEqual(len(calls), 7)
@@ -138,8 +139,20 @@ class PruneNefTest(unittest.TestCase):
         self.assertFalse(any("done.NEF" in call for call in calls))
         self.assertIn("Already in the Archive tier (skipped): 1", result.stdout)
 
+    def test_default_prompt_does_not_archive_when_declined(self):
+        master, slave = pty.openpty()
+        try:
+            os.write(master, b"n\n")
+            result = self.run_script(stdin=slave)
+        finally:
+            os.close(master)
+            os.close(slave)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Archive tier", result.stdout)
+        self.assertEqual(self.calls(), [])
+
     def test_container_limits_scope(self):
-        result = self.run_script("-y", "-c", "beta")
+        result = self.run_script("-y", "-D", "-c", "beta")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls(), [
             "storage blob delete beta flat.nef",
@@ -154,7 +167,7 @@ class PruneNefTest(unittest.TestCase):
             master, slave = pty.openpty()
             try:
                 os.write(master, answer)
-                result = self.run_script(stdin=slave)
+                result = self.run_script("-D", stdin=slave)
             finally:
                 os.close(master)
                 os.close(slave)
@@ -165,7 +178,7 @@ class PruneNefTest(unittest.TestCase):
         BLOBS["beta"].extend([blob("fail.nef", 1), blob("fail.dng", 1)])
         try:
             (self.root / "blobs.json").write_text(json.dumps(BLOBS))
-            result = self.run_script("-y", "-c", "beta")
+            result = self.run_script("-y", "-D", "-c", "beta")
         finally:
             del BLOBS["beta"][-2:]
         self.assertEqual(result.returncode, 2)
