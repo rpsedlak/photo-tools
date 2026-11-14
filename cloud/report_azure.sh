@@ -159,6 +159,10 @@ def blob_fields(blob):
     ]
 
 
+def gigabytes(size_bytes):
+    return round(size_bytes / 1_000_000_000, 3)
+
+
 def column_name(number):
     name = ""
     while number:
@@ -211,17 +215,18 @@ def write_workbook(path, containers, blobs_by_container):
         ["Storage account", ACCOUNT],
         ["Container count", len(containers)],
         ["Blob count", sum(len(blobs) for blobs in blobs_by_container)],
-        ["Total size (bytes)", sum(fields[1] for blobs in blobs_by_container for fields in blobs)],
+        ["Total size (GB)", gigabytes(sum(fields[1] for blobs in blobs_by_container for fields in blobs))],
         [],
-        ["Container", "Blob count", "Size (bytes)"],
+        ["Container", "Blob count", "Size (GB)"],
     ]
     for container, blobs in zip(containers, blobs_by_container):
-        summary.append([container, len(blobs), sum(fields[1] for fields in blobs)])
+        summary.append([container, len(blobs), gigabytes(sum(fields[1] for fields in blobs))])
     sheets = [("Summary", summary)]
     for name, blobs in zip(sheet_names(containers), blobs_by_container):
         if len(blobs) + 1 > 1048576:
             raise RuntimeError("container has too many blobs for a single Excel worksheet.")
-        sheets.append((name, [["Blob name", "Size (bytes)", "Last modified", "Blob type", "Content type", "Access tier"]] + blobs))
+        blob_rows = [[fields[0], gigabytes(fields[1])] + fields[2:] for fields in blobs]
+        sheets.append((name, [["Blob name", "Size (GB)", "Last modified", "Blob type", "Content type", "Access tier"]] + blob_rows))
 
     ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
     rel_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -296,10 +301,10 @@ def main():
         write_workbook(OUTPUT, containers, blobs_by_container)
         print("Excel report written to {}".format(OUTPUT))
     print("Azure Storage Blob report: {}".format(ACCOUNT))
-    print("Containers: {} | Blobs: {} | Total size: {} bytes".format(len(containers), total_blobs, total_bytes))
-    print("{:<32} {:>12} {:>20}".format("Container", "Blobs", "Size (bytes)"))
+    print("Containers: {} | Blobs: {} | Total size: {:.3f} GB".format(len(containers), total_blobs, gigabytes(total_bytes)))
+    print("{:<32} {:>12} {:>20}".format("Container", "Blobs", "Size (GB)"))
     for container, blobs in zip(containers, blobs_by_container):
-        print("{:<32} {:>12} {:>20}".format(container, len(blobs), sum(fields[1] for fields in blobs)))
+        print("{:<32} {:>12} {:>20.3f}".format(container, len(blobs), gigabytes(sum(fields[1] for fields in blobs))))
 
 
 try:

@@ -305,7 +305,7 @@ For example, `IMG_1234.dng` might become `20261017-detroit-riverwalk-00008.dng` 
 
 ### `cloud/report_azure.sh` — Report Azure Blob Storage usage
 
-Reports blob counts and total sizes for every container in a storage account. It only lists containers and blobs; it does not create, change, or delete anything in Azure. The default summary is printed to the terminal. Detail mode writes an Excel workbook with an overall **Summary** tab first, followed by one tab per container containing each blob's name, size, last-modified time, blob type, content type, and access tier.
+Reports blob counts and total sizes for every container in a storage account. Sizes are reported in gigabytes (GB). It only lists containers and blobs; it does not create, change, or delete anything in Azure. The default summary is printed to the terminal. Detail mode writes an Excel workbook with an overall **Summary** tab first, followed by one tab per container containing each blob's name, size in GB, last-modified time, blob type, content type, and access tier.
 
 **Access:** By default, the report uses your existing `az login` identity. You can also use a service principal with `-I sp`, using the same credentials and environment variables as `upload_azure.sh` (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Reader** role on the storage account (or its containers). The report does not request or store account keys.
 
