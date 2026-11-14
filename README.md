@@ -17,7 +17,8 @@ photo-tools/
 │   └── rename_dng.sh         # rename DNGs by capture date, event and serial
 ├── cloud/                    # cloud backup and sharing
 │   ├── upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
-│   └── report_azure.sh       # read-only Azure Blob account statistics and Excel reports
+│   ├── report_azure.sh       # read-only Azure Blob account statistics and Excel reports
+│   └── prune_nef.sh          # delete or archive NEF.zip files and NEFs that have a DNG in Azure Blob Storage
 └── tools/                    # dependency management
   ├── prereqs.sh            # checks for / installs required tools (via Homebrew)
   └── update.sh             # updates Homebrew-managed dependencies
@@ -339,6 +340,49 @@ The tool requires Azure CLI and Python 3. Set `PHOTO_AZ_ACCOUNT` once in your sh
 
 ---
 
+### `cloud/prune_nef.sh` — Delete or archive unneeded NEFs in Azure Blob Storage
+
+Saves storage cost by pruning raw files that are no longer needed:
+
+1. Every `NEF.zip` blob is pruned.
+2. Every `.nef` blob that has a corresponding `.dng` blob in the same container is pruned. A DNG corresponds when it has the same file name apart from the extension (any letter case), in the same folder or in the `DNG/` folder next to the `NEF/` folder (`20261017/NEF/a.NEF` ↔ `20261017/DNG/a.dng`). Empty DNGs do not count, and NEFs without a DNG are kept. Because the match is by name, run it on names that still agree; a DNG renamed by `rename_dng.sh` no longer matches its NEF.
+
+**Nothing is changed by default.** The tool lists what it found, then asks once whether to go ahead (it needs a terminal to ask on; without one it stops and changes nothing). Use `-y` to skip the question, or `-n` for a dry run that only reports. By default pruned blobs are deleted; with `-A` they are moved to the **Archive** access tier instead (the cheapest tier, but reading a blob again takes hours and has a 180-day minimum charge). Blobs already in the Archive tier are skipped.
+
+The report shows, for each container, each folder with the number of `NEF.zip` and `NEF` blobs to prune and their size, plus totals. Add `-l` to list every blob name.
+
+**Access:** The same sign-in as `upload_azure.sh`: your `az login` identity, or a service principal with `-I sp` using the same options, environment variables and secret sources (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Contributor** role, and listing all containers needs it at storage-account scope (use `-c` for container-scoped assignments).
+
+**Usage** (installed in `/usr/local/bin`):
+```bash
+prune_nef.sh [-a ACCOUNT] [-c CONTAINER ...] [-p PREFIX] [-A] [-n | -y] [-l] [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
+
+  -a ACCOUNT    storage account name (default: $PHOTO_AZ_ACCOUNT)
+  -c CONTAINER  only this container; repeat for several (default: all)
+  -p PREFIX     only blobs whose name starts with PREFIX (must cover the NEF and DNG folders)
+  -A            archive (Archive tier) instead of deleting
+  -n            dry run: report containers, folders and counts, change nothing
+  -y            do not ask; delete or archive right away
+  -l            list every blob, not just counts
+  -I, -i, -z, -K  service principal options, as for upload_azure.sh
+  -v            show the Azure CLI commands being run
+```
+
+```bash
+# See what would be removed, with file names
+prune_nef.sh -a rpsphotography001 -n -l
+
+# Delete, after one confirmation
+prune_nef.sh -a rpsphotography001 -c charlevoix
+
+# Archive one date folder instead of deleting, without asking
+prune_nef.sh -a rpsphotography001 -c charlevoix -p 2026/20261017/ -A -y
+```
+
+Exit status: `0` done (or nothing to do, or you declined), `2` some blobs could not be pruned, `1` error.
+
+---
+
 ### `cloud/upload_azure.sh` — Upload photo folders to Azure Blob Storage
 
 Uploads local folders into Azure Blob Storage containers, one container per category (e.g. `charlevoix`, `grand-haven`), using `azcopy`. Uploads can take hours, so files that fail are moved to a retry folder, and a retry run only uploads those files.
@@ -573,9 +617,9 @@ If both a certificate and a secret are set, the certificate is used.
 | Azure CLI           | `upload_azure.sh`                  | `brew install azure-cli`                 |
 | azcopy              | `upload_azure.sh`                  | `brew install azcopy`                    |
 | jq                  | `upload_azure.sh`                  | included with macOS 15+, else `brew install jq` |
-| Python 3            | `report_azure.sh`                  | `brew install python`                    |
+| Python 3            | `report_azure.sh`, `prune_nef.sh`  | `brew install python`                    |
 
-`install/install.sh` requires `cloud/upload_azure.sh`, checks and installs missing prerequisites first, then copies the tool scripts. Azure CLI, azcopy, and jq are required to run `upload_azure.sh`; Azure CLI and Python 3 are required for `report_azure.sh`. To check or install prerequisites on their own:
+`install/install.sh` requires `cloud/upload_azure.sh`, checks and installs missing prerequisites first, then copies the tool scripts. Azure CLI, azcopy, and jq are required to run `upload_azure.sh`; Azure CLI and Python 3 are required for `report_azure.sh` and `prune_nef.sh`. To check or install prerequisites on their own:
 
 ```bash
 tools/prereqs.sh -n        # check only: report what's missing
