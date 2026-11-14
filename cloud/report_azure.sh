@@ -155,7 +155,7 @@ def blob_fields(blob):
         properties.get("lastModified", properties.get("last_modified", "")) or "",
         properties.get("blobType", properties.get("blob_type", "")) or "",
         settings.get("contentType", settings.get("content_type", "")) or "",
-        properties.get("accessTier", properties.get("access_tier", "")) or "",
+        properties.get("blobTier", properties.get("blob_tier", properties.get("accessTier", properties.get("access_tier", "")))) or "",
     ]
 
 
