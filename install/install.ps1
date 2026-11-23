@@ -52,7 +52,9 @@ if (-not $Destination) {
     $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $HOME '.local' }
     $Destination = Join-Path (Join-Path $base 'photo-tools') 'bin'
 }
-$Destination = [IO.Path]::GetFullPath($Destination).TrimEnd('\', '/')
+$Destination = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Destination)
+$root = [IO.Path]::GetPathRoot($Destination)
+if ($Destination.Length -gt $root.Length) { $Destination = $Destination.TrimEnd('\', '/') }
 
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $repo 'cloud') 'phototools_upload_azure.ps1') -PathType Leaf)) {
