@@ -432,6 +432,9 @@ switch ($sTier.ToLowerInvariant()) {
 $sPrefix = $sPrefix.Replace('\', '/').Trim('/')
 if ($sPrefix -cmatch '[^A-Za-z0-9._/-]') { Die "-Prefix may only use letters, digits, '.', '_', '-' and '/', got '$sPrefix'." }
 if ($sPrefix -ne '') {
+    if ($sPrefix -match '(^|/)\.') {
+        Die "-Prefix cannot contain a folder starting with '.': retry scans would skip it."
+    }
     $wrapped = "/$sPrefix/"
     if ($wrapped.Contains('//') -or $wrapped.Contains('/./') -or $wrapped.Contains('/../')) {
         Die "-Prefix has an empty, '.' or '..' folder: '$sPrefix'."
