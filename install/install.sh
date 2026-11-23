@@ -3,13 +3,13 @@
 # install.sh — install the prerequisites, then copy the photo-tools scripts
 #              into /usr/local/bin.
 #
-# First runs tools/prereqs.sh, which installs anything missing (exiftool,
+# First runs tools/phototools_prereqs.sh, which installs anything missing (exiftool,
 # Adobe DNG Converter, Azure CLI, azcopy and jq) with Homebrew; stops if that
 # fails.
 #
-# Then installs every *.sh in the repository's tool directories (workflow/,
-# cloud/, tools/, ...) with mode 755: everyone can read and run them, only the owner can modify
-# them. sudo is used only when the destination isn't writable by you.
+# Then installs every *.sh in the repository's tool directories and every
+# stream-deck/*.command with mode 755. sudo is used only when the destination
+# isn't writable by you.
 #
 # Usage:
 #   install/install.sh [-n] [-v] [-d DEST]
@@ -48,11 +48,12 @@ shift $((OPTIND - 1))
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 [ -f "$REPO/cloud/phototools_upload_azure.sh" ] || die "required script cloud/phototools_upload_azure.sh not found."
 
-# Tool scripts live one level down: <repo>/<tool-dir>/<script>.sh
+# Tool scripts live one level down; Stream Deck launchers use .command.
 SCRIPTS=()
 while IFS= read -r f; do
     SCRIPTS+=("$f")
-done < <(find "$REPO" -mindepth 2 -maxdepth 2 -type f -name '*.sh' \
+done < <(find "$REPO" -mindepth 2 -maxdepth 2 -type f \
+              \( -name '*.sh' -o \( -path "$REPO/stream-deck/*.command" -a -name '*.command' \) \) \
               ! -path "$REPO/install/*" ! -path "$REPO/.*" | sort)
 [ ${#SCRIPTS[@]} -gt 0 ] || die "no scripts found in $REPO."
 vlog "repository: $REPO; destination: $DEST; dry run: $DRY_RUN"
@@ -78,7 +79,7 @@ echo ""
 # Need sudo if the destination (or, if missing, its nearest existing parent) isn't writable.
 SUDO=""
 p="$DEST"; while [ ! -d "$p" ]; do p=$(dirname "$p"); done
-[ -w "$p" ] || SUDO="sudo"
+[ -w "$p" ] || SUDO="sudo -A"
 if [ -n "$SUDO" ]; then vlog "$p is not writable by you; using sudo"; else vlog "$p is writable; not using sudo"; fi
 
 if [ -n "$SUDO" ] && [ "$DRY_RUN" -eq 0 ]; then

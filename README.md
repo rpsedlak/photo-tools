@@ -11,6 +11,8 @@ photo-tools/
 ├── README.md                 # this file
 ├── install/
 │   ├── install.sh            # installs prerequisites, then copies every tool script into /usr/local/bin
+│   └── uninstall.sh          # removes installed tools and Stream Deck launchers
+├── stream-deck/              # .command launchers for Stream Deck
 ├── workflow/                 # post-shoot workflow: SD card import and file organization
 │   ├── phototools_import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
 │   ├── phototools_rename_nef.sh         # rename NEFs/JPGs to capture time (used by phototools_import_photos.sh)
@@ -29,6 +31,7 @@ photo-tools/
 | Directory   | Purpose                                                            |
 |-------------|--------------------------------------------------------------------|
 | `install/`  | Installing the tools on a Mac (not a tool itself).                 |
+| `stream-deck/` | Launchers for running photo imports from Stream Deck.           |
 | `workflow/` | Getting photos off the camera and into the archive after a shoot.  |
 | `cloud/`    | Copying photos to cloud storage.                                   |
 | `tools/`    | Checking, installing, and updating dependencies.                   |
@@ -37,7 +40,7 @@ photo-tools/
 
 - Give each tool a `-v` option that shows what it is doing; it is off by default.
 - Put each tool in a top-level directory named for its purpose (e.g. `workflow/`). Create a new directory when a tool doesn't fit an existing one.
-- `install/install.sh` picks up every `*.sh` one level down (`<tool-dir>/<name>.sh`) automatically. Script names must be unique across all tool directories, since they're all installed into one folder.
+- `install/install.sh` picks up every `*.sh` one level down (`<tool-dir>/<name>.sh`) and every `stream-deck/*.command` automatically. Script names must be unique, since they're all installed into one folder.
 - Keep scripts that call each other in the same directory — `phototools_import_photos.sh` finds `phototools_rename_nef.sh` by looking next to itself.
 - If a new tool needs another program, add a check for it to `tools/phototools_prereqs.sh`.
 - Add the tool to the tree and table above, and give it a section under [Tools](#tools).
@@ -721,7 +724,7 @@ install/install.sh -v      # install, showing each step (verbose)
 
 The installer:
 - runs `tools/phototools_prereqs.sh` to install any missing prerequisites, and stops if one can't be installed;
-- copies every tool script, including `prereqs.sh` and `update.sh`, into `/usr/local/bin`, creating it if needed;
+- copies every tool script and the Stream Deck `.command` launchers into `/usr/local/bin`, creating it if needed;
 - sets each script to mode `755` (`rwxr-xr-x`): every user can run it, only the owner can change it;
 - uses `sudo` only if `/usr/local/bin` isn't writable by you, and asks for your password in that case.
 
@@ -730,6 +733,12 @@ Re-run it after pulling updates; installed copies are replaced. Until you do, `/
 ### Installing to another path
 
 Use `-d DIR` to install somewhere other than `/usr/local/bin`, e.g. `install/install.sh -d ~/bin`. The tools then run from that folder instead. Make sure it is on your `PATH`; the installer warns if it isn't. Install all scripts to the same folder, since `phototools_import_photos.sh` needs `phototools_rename_nef.sh` next to it.
+
+Stream Deck launchers call `phototools_import_photos.sh` by name, so the install directory must also be on the `PATH` available to the launched shell.
+
+### Uninstalling
+
+Run `install/uninstall.sh -n` to preview removal, then `install/uninstall.sh` to remove the installed tools (including old names) and Stream Deck launchers. Use `-d DIR` for a custom installation directory. Prerequisites are not removed.
 
 ### Running from the repository (development)
 

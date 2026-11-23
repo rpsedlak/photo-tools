@@ -4,10 +4,11 @@
 #
 # Removes all photo-tools scripts with both old names (import_photos.sh, etc.) and
 # new names (phototools_import_photos.sh, etc.) from the specified destination.
+# Also removes the Stream Deck launchers.
 # sudo is used only when the destination isn't writable by you.
 #
 # Usage:
-#   uninstall/uninstall.sh [-n] [-v] [-d DEST]
+#   install/uninstall.sh [-n] [-v] [-d DEST]
 #     -n       dry run: show what would be uninstalled, change nothing
 #     -v       verbose: show the commands run and why sudo is (or is not) used
 #              (default: off)
@@ -64,11 +65,22 @@ SCRIPTS_TO_REMOVE=(
     "unarchive_container.sh"
     "prereqs.sh"
     "update.sh"
+    # Known Stream Deck launchers, even if they no longer exist in the source.
+    "streamdeck_import_clarkston.command"
+    "streamdeck_import_general.command"
+    "streamdeck_import_luring.command"
 )
+
+REPO=$(cd "$(dirname "$0")/.." && pwd)
+if [ -d "$REPO/stream-deck" ]; then
+    while IFS= read -r f; do
+        SCRIPTS_TO_REMOVE+=("$(basename "$f")")
+    done < <(find "$REPO/stream-deck" -mindepth 1 -maxdepth 1 -type f -name '*.command' | sort)
+fi
 
 # Need sudo if the destination isn't writable.
 SUDO=""
-[ -w "$DEST" ] || SUDO="sudo"
+[ -w "$DEST" ] || SUDO="sudo -A"
 if [ -n "$SUDO" ]; then vlog "$DEST is not writable by you; using sudo"; else vlog "$DEST is writable; not using sudo"; fi
 
 if [ -n "$SUDO" ] && [ "$DRY_RUN" -eq 0 ]; then
