@@ -80,7 +80,7 @@ fi
 
 # Need sudo if the destination isn't writable.
 SUDO=""
-[ -w "$DEST" ] || SUDO="sudo -A"
+[ -w "$DEST" ] || SUDO="sudo"
 if [ -n "$SUDO" ]; then vlog "$DEST is not writable by you; using sudo"; else vlog "$DEST is writable; not using sudo"; fi
 
 if [ -n "$SUDO" ] && [ "$DRY_RUN" -eq 0 ]; then
