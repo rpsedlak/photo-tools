@@ -796,7 +796,7 @@ tools\phototools_update.ps1               # install missing prerequisites and up
 
 - Some installers (Adobe DNG Converter, Azure CLI) ask for administrator approval with a UAC prompt.
 - A program installed during the run may not be on `PATH` until you open a new PowerShell window; the script tells you when that is the case.
-- If DNG Converter is installed somewhere other than `C:\Program Files\Adobe\Adobe DNG Converter`, set `DNG_CONVERTER` to the path of `Adobe DNG Converter.exe`; both `tools\phototools_prereqs.ps1` and `phototools_import_photos.ps1` use it.
+- If DNG Converter is installed somewhere other than `C:\Program Files\Adobe\Adobe DNG Converter.exe`, set `DNG_CONVERTER` to the path of `Adobe DNG Converter.exe`; both `tools\phototools_prereqs.ps1` and `phototools_import_photos.ps1` use it.
 - Without DNG Converter, `phototools_import_photos.ps1 -SkipDng` still works (it copies and renames but makes no DNGs).
 
 ### Install (Windows)
@@ -871,7 +871,7 @@ phototools_import_photos.ps1 -EventName EVENT [options]
 | `-D YYYYMMDD`| `-Date`           | | `-k`         | `-SkipDng`        |
 | `-z`         | `-NoCompress`     | |              |                   |
 
-Environment overrides are `PHOTO_IMPORT_DEST`, `PHOTO_COPYRIGHT_OWNER`, `PHOTO_COMPRESS_NEF`, `DNG_CONVERTER` (default `C:\Program Files\Adobe\Adobe DNG Converter\Adobe DNG Converter.exe`) and `DNG_OPTS` (default `-c -p1`).
+Environment overrides are `PHOTO_IMPORT_DEST`, `PHOTO_COPYRIGHT_OWNER`, `PHOTO_COMPRESS_NEF`, `DNG_CONVERTER` (default `C:\Program Files\Adobe\Adobe DNG Converter.exe`) and `DNG_OPTS` (default `-c -p1`).
 
 ```powershell
 # Preview what will happen

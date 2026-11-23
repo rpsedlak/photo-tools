@@ -80,7 +80,7 @@ Environment overrides:
   PHOTO_COMPRESS_NEF     set to 0 (or no/false/off/n) to stop compressing NEF\
                          folders after import (same as -NoCompress)
   DNG_CONVERTER          path to the converter program (default:
-                         C:\Program Files\Adobe\Adobe DNG Converter\Adobe DNG Converter.exe,
+                         C:\Program Files\Adobe\Adobe DNG Converter.exe,
                          else the Program Files (x86) equivalent)
   DNG_OPTS               converter options (default: "-c -p1" = lossless
                          compressed, medium preview). See Adobe's DNG Converter
@@ -171,11 +171,14 @@ $RenameScript = Join-Path $PSScriptRoot 'phototools_rename_nef.ps1'
 
 $DngConverter = $env:DNG_CONVERTER
 if (-not $DngConverter) {
-    $DngConverter = 'C:\Program Files\Adobe\Adobe DNG Converter\Adobe DNG Converter.exe'
+    $DngConverter = 'C:\Program Files\Adobe\Adobe DNG Converter.exe'
     foreach ($pf in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
         if (-not $pf) { continue }
-        $candidate = [IO.Path]::Combine($pf, 'Adobe', 'Adobe DNG Converter', 'Adobe DNG Converter.exe')
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) { $DngConverter = $candidate; break }
+        foreach ($relative in @('Adobe\Adobe DNG Converter.exe', 'Adobe\Adobe DNG Converter\Adobe DNG Converter.exe')) {
+            $candidate = [IO.Path]::Combine($pf, $relative)
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) { $DngConverter = $candidate; break }
+        }
+        if (Test-Path -LiteralPath $DngConverter -PathType Leaf) { break }
     }
 }
 $DngOpts = if ($env:DNG_OPTS) { $env:DNG_OPTS } else { '-c -p1' }
@@ -385,7 +388,7 @@ function Get-ScanFiles {
                 $stack.Push($d)
             }
         } catch {
-            Write-Err "WARN  cannot read folder $dir"
+            Stop-Import "cannot read folder $dir : $_"
         }
     }
     $all = $result.ToArray()
@@ -452,6 +455,7 @@ function Get-NextSerial {   # highest existing NNNNN for the prefix, plus one
 # Move a NEF/JPG (and any sidecar) out of .incoming into its final folder.
 function Move-ToFinal {
     param([string]$Src, [string]$FinalDir, $Names)
+    $script:LastFiledTarget = $null
     $base = [IO.Path]::GetFileName($Src)
     $stem = [IO.Path]::GetFileNameWithoutExtension($Src)
     $ext = [IO.Path]::GetExtension($Src)
@@ -463,7 +467,8 @@ function Move-ToFinal {
         $Names.Add([IO.Path]::GetFileName($target))
     } catch {
         Write-Err "FAIL  could not file $Src"
-        return
+        $script:Failed++
+        return $false
     }
     $srcStem = [IO.Path]::Combine([IO.Path]::GetDirectoryName($Src), $stem)
     foreach ($side in @("$Src.xmp", "$Src.XMP", "$srcStem.xmp", "$srcStem.XMP")) {
@@ -475,9 +480,47 @@ function Move-ToFinal {
             $targetStem = [IO.Path]::GetFileNameWithoutExtension($target)
             $sideTarget = Join-Path $FinalDir "$targetStem$sideExt"
         }
-        if (Test-PathExists $sideTarget) { continue }
-        try { [IO.File]::Move($side, $sideTarget) } catch { Write-Verbose "sidecar $side was not moved: $_" }
+        if (Test-PathExists $sideTarget) {
+            Write-Err "FAIL  sidecar destination already exists: $sideTarget"
+            $script:Failed++
+            continue
+        }
+        try { [IO.File]::Move($side, $sideTarget) } catch {
+            Write-Err "FAIL  could not move sidecar $side"
+            $script:Failed++
+        }
     }
+    $script:LastFiledTarget = $target
+    return $true
+}
+
+function Restore-FiledPhoto {
+    param([string]$FiledPath, [string]$IncomingPath)
+    try {
+        [IO.File]::Move($FiledPath, $IncomingPath)
+    } catch {
+        Write-Err "FAIL  could not restore $FiledPath to $IncomingPath"
+        return $false
+    }
+    $fileStem = [IO.Path]::GetFileNameWithoutExtension($FiledPath)
+    $incomingStem = [IO.Path]::GetFileNameWithoutExtension($IncomingPath)
+    $fileDir = [IO.Path]::GetDirectoryName($FiledPath)
+    $incomingDir = [IO.Path]::GetDirectoryName($IncomingPath)
+    foreach ($pair in @(
+        [pscustomobject]@{ From = "$FiledPath.xmp"; To = "$IncomingPath.xmp" },
+        [pscustomobject]@{ From = "$FiledPath.XMP"; To = "$IncomingPath.XMP" },
+        [pscustomobject]@{ From = (Join-Path $fileDir "$fileStem.xmp"); To = (Join-Path $incomingDir "$incomingStem.xmp") },
+        [pscustomobject]@{ From = (Join-Path $fileDir "$fileStem.XMP"); To = (Join-Path $incomingDir "$incomingStem.XMP") }
+    )) {
+        if (-not [IO.File]::Exists($pair.From)) { continue }
+        try {
+            [IO.File]::Move($pair.From, $pair.To)
+        } catch {
+            Write-Err "FAIL  could not restore sidecar $($pair.From)"
+            return $false
+        }
+    }
+    return $true
 }
 
 # Same photo => same capture-time name (rename_nef adds _1, _2 on clashes).
@@ -708,7 +751,7 @@ function Invoke-JpgStep {   # rename new JPGs to capture time and file them in J
             [IO.File]::Delete($f)
             $script:JpgDupes++
         } else {
-            Move-ToFinal $f $jd $names
+            $null = Move-ToFinal $f $jd $names
         }
     }
     Remove-EmptyDir $inc
@@ -758,15 +801,22 @@ function Invoke-DateStep {  # rename, drop duplicates, convert, write copyright,
     }
 
     if ($SkipDng) {
-        foreach ($f in $nefs) { Move-ToFinal $f $nd $names }
+        foreach ($f in $nefs) { $null = Move-ToFinal $f $nd $names }
     } else {
         Write-Line "${Day}: converting $($nefs.Count) NEF(s) to DNG ($ev)..."
-        Remove-Tree $din
         try { $null = [IO.Directory]::CreateDirectory($din) } catch { Stop-Import "cannot create $din" }
+        $toConvert = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($f in $nefs) {
+            $stem = [IO.Path]::GetFileNameWithoutExtension($f)
+            if (-not [IO.File]::Exists((Join-Path $din "$stem.dng")) -and
+                -not [IO.File]::Exists((Join-Path $din "$stem.DNG"))) {
+                $toConvert.Add($f)
+            }
+        }
         $t0 = Get-ElapsedSec
-        Invoke-DngConvert $nefs $din $t0
+        if ($toConvert.Count -gt 0) { Invoke-DngConvert $toConvert.ToArray() $din $t0 }
         Clear-Status
-        Write-Line "          converted in $(Format-Hms ((Get-ElapsedSec) - $t0))"
+        if ($toConvert.Count -gt 0) { Write-Line "          converted in $(Format-Hms ((Get-ElapsedSec) - $t0))" }
 
         $dates = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([StringComparer]::Ordinal)
         $dateArgs = @('-q', '-q', '-m', '-f', '-ext', 'nef', '-d', '%Y%m%d', '-p', ('$FileName' + "`t" + '$DateTimeOriginal'), $inc)
@@ -836,18 +886,24 @@ function Invoke-DateStep {  # rename, drop duplicates, convert, write copyright,
                 $serial++
                 $out = Join-Path $dd ($prefix + '-' + $serial.ToString('00000', $inv) + '.dng')
             }
+            if (-not (Move-ToFinal $f $nd $names)) { $script:ConvFailed++; continue }
+            $filedNef = $script:LastFiledTarget
             $moved = $false
             try { [IO.File]::Move($dng, $out); $moved = $true } catch { Write-Verbose "move failed: $_" }
             if ($moved -and [IO.File]::Exists($out) -and -not [IO.File]::Exists($dng)) {
                 $serial++
                 $script:Converted++
-                Move-ToFinal $f $nd $names
             } else {
                 Write-Err "FAIL  could not file $dng"
                 $script:ConvFailed++
+                if (Restore-FiledPhoto $filedNef $f) {
+                    $null = $names.Remove([IO.Path]::GetFileName($filedNef))
+                } else {
+                    $script:Failed++
+                }
             }
         }
-        Remove-Tree $din
+        if (@(Get-IncomingFiles $inc 'nef').Count -eq 0) { Remove-Tree $din }
     }
     $nefs = @(Get-IncomingFiles $inc 'nef')
     if ($nefs.Count -eq 0) { Remove-FileQuiet $eventFile; Remove-EmptyDir $inc }
@@ -917,7 +973,8 @@ try {
                 if (-not $drv.IsReady) { continue }
                 $root = $drv.RootDirectory.FullName
                 if (-not [IO.Directory]::Exists((Join-Path $root 'DCIM'))) { continue }
-                if ((Get-CleanPath $root).Equals($DestRoot, $nameCompare)) { continue }
+                $destDrive = [IO.Path]::GetPathRoot($DestRoot)
+                if ((Get-CleanPath $root).Equals((Get-CleanPath $destDrive), $nameCompare)) { continue }
                 $Source = $root; $found++
             } catch { continue }
         }
@@ -1234,6 +1291,7 @@ try {
         try { if ($script:ConvProc -and -not $script:ConvProc.HasExited) { try { $script:ConvProc.Kill($true) } catch { $script:ConvProc.Kill() } } } catch { Write-Verbose 'converter already gone' }
         Write-Line ''
         Write-Err 'Interrupted - re-run the same command to finish.'
+        try { $host.SetShouldExit(130) } catch { Write-Verbose 'could not set interrupted exit code' }
     }
     if ($oldConsoleEncoding) { try { [Console]::OutputEncoding = $oldConsoleEncoding } catch { Write-Verbose 'could not restore console encoding' } }
 }

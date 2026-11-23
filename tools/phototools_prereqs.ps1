@@ -48,9 +48,10 @@ $DngConverterEnv = $env:DNG_CONVERTER
 function Get-DngConverterPath {
     $paths = @()
     if ($DngConverterEnv) { $paths += $DngConverterEnv }
-    $paths += (Join-Path $env:ProgramFiles 'Adobe\Adobe DNG Converter\Adobe DNG Converter.exe')
-    if (${env:ProgramFiles(x86)}) {
-        $paths += (Join-Path ${env:ProgramFiles(x86)} 'Adobe\Adobe DNG Converter\Adobe DNG Converter.exe')
+    foreach ($pf in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if (-not $pf) { continue }
+        $paths += (Join-Path $pf 'Adobe\Adobe DNG Converter.exe')
+        $paths += (Join-Path $pf 'Adobe\Adobe DNG Converter\Adobe DNG Converter.exe')
     }
     $paths
 }

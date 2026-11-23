@@ -388,6 +388,17 @@ function Join-Relative {    # a '/'-separated relative path under a local folder
     if ($IsWin) { $Relative = $Relative.Replace('/', '\') }
     return [IO.Path]::Combine($Base, $Relative)
 }
+function Normalize-AzCopyPath {
+    param([string]$Path)
+    $Path = $Path.Replace('\', '/')
+    if ($Path.StartsWith('//?/UNC/', [StringComparison]::OrdinalIgnoreCase)) {
+        return '//' + $Path.Substring(8)
+    }
+    if ($Path.StartsWith('//?/', [StringComparison]::Ordinal)) {
+        return $Path.Substring(4)
+    }
+    return $Path
+}
 function Test-Entry {       # exists as anything, including a broken link
     param([string]$Path)
     if (Test-Path -LiteralPath $Path) { return $true }
@@ -1016,7 +1027,7 @@ no credential for service principal $sClientId. Provide one of:
             # Per-file outcome from azcopy's job record: source path, status, HTTP code.
             $statusMap = New-Object System.Collections.Hashtable ($(if ($IsWin) { [StringComparer]::OrdinalIgnoreCase } else { [StringComparer]::Ordinal }))
             $srcNorm = $src
-            if ($IsWin) { $srcNorm = $srcNorm.Replace('\', '/') }
+            if ($IsWin) { $srcNorm = Normalize-AzCopyPath $srcNorm }
             $srcPrefix = $srcNorm.TrimEnd('/') + '/'
             $statusCounts = @{}
             foreach ($jid in $ctx.Jobs) {
@@ -1029,10 +1040,7 @@ no credential for service principal $sClientId. Provide one of:
                     foreach ($d in @($content.Details)) {
                         if ($null -eq $d -or $d.IsFolderProperties -eq $true) { continue }
                         $s = [string]$d.Src
-                        if ($IsWin) {
-                            $s = $s.Replace('\', '/')
-                            if ($s.StartsWith('//?/')) { $s = $s.Substring(4) }
-                        }
+                        if ($IsWin) { $s = Normalize-AzCopyPath $s }
                         if ($s.StartsWith($srcPrefix, $PathCmp)) { $s = $s.Substring($srcPrefix.Length) }
                         $statusMap[$s] = @([string]$d.TransferStatus, [string]$d.ErrorCode)
                         $statusCounts[[string]$d.TransferStatus] = 1 + $(if ($statusCounts.ContainsKey([string]$d.TransferStatus)) { $statusCounts[[string]$d.TransferStatus] } else { 0 })
@@ -1234,6 +1242,7 @@ finally {
         Complete-ProgressLine
         Write-Host ''
         Write-Err 'Interrupted. Nothing was put in the retry folder; re-run the same command (files already uploaded are skipped).'
+        try { $host.SetShouldExit(130) } catch { Write-Verbose 'could not set interrupted exit code' }
     }
     foreach ($k in @($savedEnv.Keys)) { [Environment]::SetEnvironmentVariable($k, $savedEnv[$k]) }
     if ($null -ne $savedOutEnc) { try { [Console]::OutputEncoding = $savedOutEnc } catch { $null = $_ } }
