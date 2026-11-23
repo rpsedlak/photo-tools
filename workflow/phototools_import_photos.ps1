@@ -535,7 +535,7 @@ function Test-Duplicate {
     foreach ($name in $Names) { $candidates.Add((Join-Path $FinalDir $name)) }
     foreach ($candidate in $AdditionalFiles) { $candidates.Add($candidate) }
     foreach ($candidate in $candidates) {
-        if (-not [IO.Path]::GetExtension($candidate).Equals('.nef', [StringComparison]::OrdinalIgnoreCase)) { continue }
+        if (-not [IO.Path]::GetExtension($candidate).Equals([IO.Path]::GetExtension($File), [StringComparison]::OrdinalIgnoreCase)) { continue }
         $name = [IO.Path]::GetFileName($candidate)
         $hit = $false
         if ($name.StartsWith($r1, $nameCompare)) {
