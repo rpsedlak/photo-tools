@@ -131,13 +131,37 @@ foreach ($line in $lines) {
     $subsec = $subsec -replace '[^0-9]', ''   # strip spaces / "-" placeholder
     $base = "$dto$subsec"
 
+    # Carry along sidecars: IMG.xmp / IMG.XMP and IMG.NEF.xmp styles
+    $sidecars = @()
+    $handled = New-Object 'System.Collections.Generic.HashSet[string]' $nameComparer
+    foreach ($side in @((Join-Path $dir "$stem.xmp"), (Join-Path $dir "$stem.XMP"), "$src.xmp", "$src.XMP")) {
+        if (-not $handled.Add($side)) { continue }
+        if (-not (Test-Path -LiteralPath $side -PathType Leaf)) { continue }
+        $sideExt = [IO.Path]::GetExtension($side).TrimStart('.')
+        if ($side.StartsWith("$src.", [StringComparison]::Ordinal) -or ($onWindows -and $side.StartsWith("$src.", [StringComparison]::OrdinalIgnoreCase))) {
+            $sideSuffix = ".$ext" + $side.Substring($src.Length)
+        } else {
+            $sideSuffix = ".$sideExt"
+        }
+        $sidecars += [pscustomobject]@{ Path = $side; Suffix = $sideSuffix }
+    }
+
     # Pick a free target name
     $new = $base
     $n = 0
     while ($true) {
         $target = Join-Path $dir "$new.$ext"
         if ($nameComparer.Equals($target, $src)) { break }   # already correctly named
-        if (-not $planned.Contains($target) -and -not (Test-Path -LiteralPath $target)) { break }
+        $available = -not $planned.Contains($target) -and -not (Test-Path -LiteralPath $target)
+        foreach ($sidecar in $sidecars) {
+            $sideTarget = Join-Path $dir "$new$($sidecar.Suffix)"
+            if (-not $nameComparer.Equals($sideTarget, $sidecar.Path) -and
+                ($planned.Contains($sideTarget) -or (Test-Path -LiteralPath $sideTarget))) {
+                $available = $false
+                break
+            }
+        }
+        if ($available) { break }
         $n++
         $new = "${base}_$n"
     }
@@ -147,6 +171,9 @@ foreach ($line in $lines) {
         continue
     }
     [void]$planned.Add($target)
+    foreach ($sidecar in $sidecars) {
+        [void]$planned.Add((Join-Path $dir "$new$($sidecar.Suffix)"))
+    }
 
     if ($DryRun) {
         Write-Output "WOULD $src -> $new.$ext"
@@ -162,17 +189,10 @@ foreach ($line in $lines) {
         }
     }
 
-    # Carry along sidecars: IMG.xmp / IMG.XMP and IMG.NEF.xmp styles
-    $handled = New-Object 'System.Collections.Generic.HashSet[string]' $nameComparer
-    foreach ($side in @((Join-Path $dir "$stem.xmp"), (Join-Path $dir "$stem.XMP"), "$src.xmp", "$src.XMP")) {
-        if (-not $handled.Add($side)) { continue }
-        if (-not (Test-Path -LiteralPath $side -PathType Leaf)) { continue }
-        $sideExt = [IO.Path]::GetExtension($side).TrimStart('.')
-        if ($side.StartsWith("$src.", [StringComparison]::Ordinal) -or ($onWindows -and $side.StartsWith("$src.", [StringComparison]::OrdinalIgnoreCase))) {
-            $sideTarget = "$target.$sideExt"
-        } else {
-            $sideTarget = Join-Path $dir "$new.$sideExt"
-        }
+    foreach ($sidecar in $sidecars) {
+        $side = $sidecar.Path
+        $sideTarget = Join-Path $dir "$new$($sidecar.Suffix)"
+        if ($nameComparer.Equals($side, $sideTarget)) { continue }
         $sideName = [IO.Path]::GetFileName($side)
         $sideTargetName = [IO.Path]::GetFileName($sideTarget)
         if ($DryRun) {
@@ -182,7 +202,8 @@ foreach ($line in $lines) {
                 [IO.File]::Move($side, $sideTarget)
                 Write-Output "      + $sideName -> $sideTargetName"
             } catch {
-                Write-Verbose "sidecar $side was not renamed: $_"
+                Write-Output "FAIL  $side"
+                $failed++
             }
         }
     }
