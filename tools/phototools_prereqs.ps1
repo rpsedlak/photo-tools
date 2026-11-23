@@ -3,12 +3,12 @@
 Make sure the tools photo-tools needs are installed (Windows 11).
 
 .DESCRIPTION
-prereqs.ps1 (Windows PowerShell version of prereqs.sh) checks for:
+phototools_prereqs.ps1 (Windows PowerShell version of phototools_prereqs.sh) checks for:
 
-    exiftool             winget OliverBetz.ExifTool   (import_photos.ps1, rename_nef.ps1)
-    Adobe DNG Converter  winget Adobe.DNGConverter    (import_photos.ps1)
+    exiftool             winget OliverBetz.ExifTool   (phototools_import_photos.ps1, phototools_rename_nef.ps1)
+    Adobe DNG Converter  winget Adobe.DNGConverter    (phototools_import_photos.ps1)
 
-and, for upload_azure.ps1:
+and, for phototools_upload_azure.ps1:
 
     Azure CLI            winget Microsoft.AzureCLI
     azcopy               winget Microsoft.Azure.AZCopy.10
@@ -26,10 +26,10 @@ Works with Windows PowerShell 5.1 and PowerShell 7+.
 Check only: report what's missing, install nothing.
 
 .EXAMPLE
-tools\prereqs.ps1 -CheckOnly
+tools\phototools_prereqs.ps1 -CheckOnly
 
 .EXAMPLE
-tools\prereqs.ps1
+tools\phototools_prereqs.ps1
 #>
 [CmdletBinding()]
 param(
@@ -39,7 +39,7 @@ param(
 $ErrorActionPreference = 'Continue'
 
 if ([Environment]::OSVersion.Platform -ne 'Win32NT') {
-    [Console]::Error.WriteLine('Error: this is the Windows version of photo-tools; use prereqs.sh on macOS.')
+    [Console]::Error.WriteLine('Error: this is the Windows version of photo-tools; use phototools_prereqs.sh on macOS.')
     exit 1
 }
 
@@ -136,7 +136,7 @@ if (-not (Test-DngConverter)) {
     }
 }
 
-# ---------- Azure upload tools (upload_azure.ps1) ----------------------------
+# ---------- Azure upload tools (phototools_upload_azure.ps1) ----------------------------
 $azureTools = @(
     @{ Command = 'az';     Id = 'Microsoft.AzureCLI';         Label = 'Azure CLI' },
     @{ Command = 'azcopy'; Id = 'Microsoft.Azure.AZCopy.10';  Label = 'azcopy' }

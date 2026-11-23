@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-Import photos from one SD card onto a destination disk (Windows PowerShell version of import_photos.sh).
+Import photos from one SD card onto a destination disk (Windows PowerShell version of phototools_import_photos.sh).
 
 .DESCRIPTION
-import_photos.ps1 imports photos from one SD card in five steps:
+phototools_import_photos.ps1 imports photos from one SD card in five steps:
 
   1. COPY    Every file in the card's DCIM folder is copied (never moved -
              the card is left untouched) into a folder for its capture date,
@@ -19,7 +19,7 @@ import_photos.ps1 imports photos from one SD card in five steps:
              RAW+JPEG shots (DSC_0001.NEF + DSC_0001.JPG) are both copied,
              each to its own extension folder.
   2. RENAME  The newly imported NEFs and JPGs are renamed to their capture
-             time, YYYYMMDDHHMMSS<subsec>.NEF / .JPG, by rename_nef.ps1 (same
+             time, YYYYMMDDHHMMSS<subsec>.NEF / .JPG, by phototools_rename_nef.ps1 (same
              folder as this script), so they sort by time and the two files
              of a RAW+JPEG shot share a name:
                  20261017\NEF\2026101720184537.NEF
@@ -68,7 +68,7 @@ Exit codes: 0 = done, 2 = done but some files had problems (see the FAIL
 lines; the card is not ejected), 1 = error (nothing imported).
 
 Requires: exiftool (winget install OliverBetz.ExifTool), Adobe DNG Converter
-(free, from Adobe) unless -SkipDng, and rename_nef.ps1 next to this script.
+(free, from Adobe) unless -SkipDng, and phototools_rename_nef.ps1 next to this script.
 
 Works with Windows PowerShell 5.1 and PowerShell 7+.
 
@@ -125,13 +125,13 @@ Eject the card when finished (only works when the source is a drive root).
 Show what would happen, change nothing.
 
 .EXAMPLE
-.\import_photos.ps1 -EventName "Detroit Riverwalk" -Destination D:\Photos -CopyrightOwner "Richard Sedlak"
+.\phototools_import_photos.ps1 -EventName "Detroit Riverwalk" -Destination D:\Photos -CopyrightOwner "Richard Sedlak"
 
 .EXAMPLE
-.\import_photos.ps1 -EventName wedding -Destination D:\Photos -Source E:\ -Eject
+.\phototools_import_photos.ps1 -EventName wedding -Destination D:\Photos -Source E:\ -Eject
 
 .EXAMPLE
-.\import_photos.ps1 -EventName wedding -Destination D:\Photos -DryRun
+.\phototools_import_photos.ps1 -EventName wedding -Destination D:\Photos -DryRun
 
 .NOTES
 The DNG conversion and copyright steps need the real Adobe DNG Converter and
@@ -167,7 +167,7 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $inv = [Globalization.CultureInfo]::InvariantCulture
 $latin1 = [Text.Encoding]::GetEncoding(28591)   # 1:1 byte <-> char, for fast chunk comparison
 $copySign = [string][char]0x00A9
-$RenameScript = Join-Path $PSScriptRoot 'rename_nef.ps1'
+$RenameScript = Join-Path $PSScriptRoot 'phototools_rename_nef.ps1'
 
 $DngConverter = $env:DNG_CONVERTER
 if (-not $DngConverter) {
@@ -504,7 +504,7 @@ function Get-FolderNames {  # names of the files directly in a folder
     , $names
 }
 
-# Run rename_nef.ps1 in-process and turn its output into progress.
+# Run phototools_rename_nef.ps1 in-process and turn its output into progress.
 function Invoke-Rename {
     param([string]$Inc, [int]$Total, [string]$Ext)
     $renameArgs = @{ Directory = $Inc }
@@ -877,7 +877,7 @@ try {
         Stop-Import "exiftool not found. Install it with: winget install OliverBetz.ExifTool"
     }
     if (-not (Test-Path -LiteralPath $RenameScript -PathType Leaf)) {
-        Stop-Import "rename_nef.ps1 not found next to this script ($PSScriptRoot)."
+        Stop-Import "phototools_rename_nef.ps1 not found next to this script ($PSScriptRoot)."
     }
     if (-not $SkipDng -and -not $DryRun -and -not (Test-Path -LiteralPath $DngConverter -PathType Leaf)) {
         Stop-Import ("Adobe DNG Converter not found at:`n  $DngConverter`n" +

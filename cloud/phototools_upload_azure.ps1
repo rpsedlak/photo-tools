@@ -3,7 +3,7 @@
 Uploads photo folders to Azure Blob Storage, one container per category, with azcopy.
 
 .DESCRIPTION
-upload_azure.ps1 - the Windows PowerShell version of upload_azure.sh.
+phototools_upload_azure.ps1 - the Windows PowerShell version of phototools_upload_azure.sh.
 Runs on Windows PowerShell 5.1 and PowerShell 7+.
 
   SIGN IN  As you (your existing `az login`), or as a service principal
@@ -106,17 +106,17 @@ messages; azcopy logs at INFO level. Also saved to debug.log in the run folder
 (except with -DryRun). (This is not the common -Verbose parameter.)
 
 .EXAMPLE
-.\upload_azure.ps1 -Account rpsphotography001 -Upload 'raw=D:\Photos\Raw','edits=D:\Photos\Edits'
+.\phototools_upload_azure.ps1 -Account rpsphotography001 -Upload 'raw=D:\Photos\Raw','edits=D:\Photos\Edits'
 
 Uploads both folders, each into its own container.
 
 .EXAMPLE
-.\upload_azure.ps1 -Account rpsphotography001 -MapFile D:\Photos\containers.txt -Prefix 2026 -DryRun
+.\phototools_upload_azure.ps1 -Account rpsphotography001 -MapFile D:\Photos\containers.txt -Prefix 2026 -DryRun
 
 Shows what would be uploaded, without uploading anything.
 
 .EXAMPLE
-.\upload_azure.ps1 -Account rpsphotography001 -Upload 'raw=D:\Photos\Raw' -RetryMode
+.\phototools_upload_azure.ps1 -Account rpsphotography001 -Upload 'raw=D:\Photos\Raw' -RetryMode
 
 Uploads only the files that failed in an earlier run.
 
@@ -175,7 +175,7 @@ $Sep = [string][IO.Path]::DirectorySeparatorChar
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Inv = [Globalization.CultureInfo]::InvariantCulture
 $PathCmp = if ($IsWin) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-$ProgName = 'upload_azure.ps1'
+$ProgName = 'phototools_upload_azure.ps1'
 
 # ---------- settings ----------------------------------------------------------
 function Get-Env {          # an environment variable, '' when unset
@@ -315,7 +315,7 @@ function Format-CommandLine {   # a command for the log, secrets hidden
     return $shown
 }
 
-# ---------- progress display (same as import_photos.ps1) ----------------------
+# ---------- progress display (same as phototools_import_photos.ps1) ----------------------
 function Show-ProgressLine {      # $Percent = percent done, $Text = status text
     param([int]$Percent, [string]$Text)
     if ($script:ProgTty) {

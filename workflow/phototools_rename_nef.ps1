@@ -3,7 +3,7 @@
 Rename Nikon NEF files to YYYYMMDDHHMMSS<subseconds>.NEF using the EXIF capture time.
 
 .DESCRIPTION
-rename_nef.ps1 (Windows PowerShell version of rename_nef.sh) renames Nikon NEF
+phototools_rename_nef.ps1 (Windows PowerShell version of phototools_rename_nef.sh) renames Nikon NEF
 files to YYYYMMDDHHMMSS<subseconds>.NEF using the capture time stored in EXIF.
 With -Extension, other types (e.g. the JPG of a RAW+JPEG shot) are renamed the
 same way, so a NEF and its JPG end up with the same name.
@@ -15,7 +15,7 @@ Uses DateTimeOriginal + SubSecTimeOriginal. If two shots land on the exact same
 subsecond (rare, but possible in fast bursts), a suffix _1, _2, ... is added.
 Matching Lightroom/Photoshop .xmp sidecars are renamed alongside.
 
-Requires exiftool:  winget install OliverBetz.ExifTool   (or run tools\prereqs.ps1)
+Requires exiftool:  winget install OliverBetz.ExifTool   (or run tools\phototools_prereqs.ps1)
 
 Works with Windows PowerShell 5.1 and PowerShell 7+.
 
@@ -33,10 +33,10 @@ Rename files with this extension instead of NEF, e.g. -Extension jpg
 (matches upper and lower case; the extension's case is kept).
 
 .EXAMPLE
-rename_nef.ps1 D:\Photos\20261017\NEF
+phototools_rename_nef.ps1 D:\Photos\20261017\NEF
 
 .EXAMPLE
-rename_nef.ps1 -DryRun -Recurse -Extension jpg D:\Photos
+phototools_rename_nef.ps1 -DryRun -Recurse -Extension jpg D:\Photos
 #>
 [CmdletBinding()]
 param(
@@ -50,7 +50,7 @@ param(
 $ErrorActionPreference = 'Continue'
 
 function Show-Usage {
-    [Console]::Error.WriteLine('Usage: rename_nef.ps1 [-DryRun] [-Recurse] [-Extension EXT] DIRECTORY')
+    [Console]::Error.WriteLine('Usage: phototools_rename_nef.ps1 [-DryRun] [-Recurse] [-Extension EXT] DIRECTORY')
     [Console]::Error.WriteLine('  -DryRun      dry run (show changes only)')
     [Console]::Error.WriteLine('  -Recurse     recurse into subdirectories')
     [Console]::Error.WriteLine('  -Extension   rename this file type instead of NEF (e.g. jpg)')

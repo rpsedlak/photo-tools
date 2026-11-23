@@ -3,7 +3,7 @@
 Install missing prerequisites, then update photo-tools dependencies (Windows 11).
 
 .DESCRIPTION
-update.ps1 (Windows PowerShell version of update.sh) first runs prereqs.ps1 to
+phototools_update.ps1 (Windows PowerShell version of phototools_update.sh) first runs phototools_prereqs.ps1 to
 install anything missing, then upgrades the winget-managed dependencies used by
 this repository: exiftool, Adobe DNG Converter, Azure CLI and azcopy. Programs
 that were not installed with winget are left alone.
@@ -11,7 +11,7 @@ that were not installed with winget are left alone.
 Works with Windows PowerShell 5.1 and PowerShell 7+.
 
 .EXAMPLE
-update.ps1
+phototools_update.ps1
 #>
 [CmdletBinding()]
 param()
@@ -24,11 +24,11 @@ function Stop-Update {
     exit 1
 }
 
-if ([Environment]::OSVersion.Platform -ne 'Win32NT') { Stop-Update 'this is the Windows version of photo-tools; use update.sh on macOS.' }
+if ([Environment]::OSVersion.Platform -ne 'Win32NT') { Stop-Update 'this is the Windows version of photo-tools; use phototools_update.sh on macOS.' }
 
-$prereqs = Join-Path $PSScriptRoot 'prereqs.ps1'
+$prereqs = Join-Path $PSScriptRoot 'phototools_prereqs.ps1'
 if (-not (Test-Path -LiteralPath $prereqs -PathType Leaf)) {
-    Stop-Update 'prereqs.ps1 not found. Reinstall photo-tools using install\install.ps1.'
+    Stop-Update 'phototools_prereqs.ps1 not found. Reinstall photo-tools using install\install.ps1.'
 }
 
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {

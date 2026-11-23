@@ -4,13 +4,13 @@ Install the photo-tools PowerShell scripts for the current user (Windows 11).
 
 .DESCRIPTION
 install.ps1 (Windows PowerShell version of install.sh) first runs
-tools\prereqs.ps1, which installs anything missing (exiftool, Adobe DNG
+tools\phototools_prereqs.ps1, which installs anything missing (exiftool, Adobe DNG
 Converter, Azure CLI and azcopy) with winget; it stops if that fails.
 
 Then it copies every *.ps1 in the repository's tool directories (workflow\,
 cloud\, tools\, ...) into one folder, by default
 %LOCALAPPDATA%\photo-tools\bin, and adds that folder to your user PATH so the
-scripts run by name (e.g. import_photos.ps1 -EventName "My Event"). No
+scripts run by name (e.g. phototools_import_photos.ps1 -EventName "My Event"). No
 administrator rights are needed.
 
 Re-run after pulling updates; installed copies are replaced.
@@ -55,8 +55,8 @@ if (-not $Destination) {
 $Destination = [IO.Path]::GetFullPath($Destination).TrimEnd('\', '/')
 
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $repo 'cloud') 'upload_azure.ps1') -PathType Leaf)) {
-    Stop-Install 'required script cloud\upload_azure.ps1 not found.'
+if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $repo 'cloud') 'phototools_upload_azure.ps1') -PathType Leaf)) {
+    Stop-Install 'required script cloud\phototools_upload_azure.ps1 not found.'
 }
 
 # Tool scripts live one level down: <repo>\<tool-dir>\<script>.ps1
@@ -73,7 +73,7 @@ if ($dupes.Count -gt 0) {
 }
 
 Write-Host 'Checking prerequisites...'
-$prereqs = Join-Path (Join-Path $repo 'tools') 'prereqs.ps1'
+$prereqs = Join-Path (Join-Path $repo 'tools') 'phototools_prereqs.ps1'
 if ($DryRun) {
     & $prereqs -CheckOnly
 } else {

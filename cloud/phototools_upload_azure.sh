@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# upload_azure.sh — upload photo folders to Azure Blob Storage, one container
+# phototools_upload_azure.sh — upload photo folders to Azure Blob Storage, one container
 #                   per category, with azcopy.
 #
 #   SIGN IN  As you (your existing `az login`), or as a service principal
@@ -9,8 +9,8 @@
 #            SAS for each container (signed with Entra ID, never with account
 #            keys) and hands it to azcopy. With -A oauth, azcopy signs in
 #            itself instead and renews its own tokens (best for very long runs).
-#   UPLOAD   Every file under each folder is uploaded to its container,
-#            keeping the folder structure:
+#   UPLOAD   Files under each folder are uploaded to its container, keeping the
+#            folder structure. NEF and ZIP files are skipped by default:
 #                DIR/20261017/DNG/a.dng -> <container>/<prefix>/20261017/DNG/a.dng
 #            Hidden files and folders are skipped. Blobs that are already in
 #            the container are skipped, so a re-run only sends what is new.
@@ -23,7 +23,7 @@
 #            removes its link; the original stays where it was.
 #
 # Usage:
-#   upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
+#   phototools_upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
 #
 #   -a ACCOUNT    name of the Azure storage account that holds the containers:
 #                 the first part of https://ACCOUNT.blob.core.windows.net,
@@ -38,6 +38,8 @@
 #   -r RETRY      retry folder root (default: $PHOTO_UPLOAD_RETRY, else
 #                 DIR/.upload-retry for each DIR)
 #   -R            retry mode: upload only what is in the retry folders
+#   -e EXTENSIONS comma-separated filename extensions to ignore (default:
+#                 $PHOTO_UPLOAD_IGNORE_EXTENSIONS, else nef,zip); -e '' ignores none
 #   -I user|sp    which Azure identity signs in and uploads (default: $PHOTO_AZ_AUTH,
 #                 else user):
 #                   user  you: reuses your existing 'az login' sign-in. Simplest;
@@ -56,7 +58,17 @@
 #                 $PHOTO_AZ_CERT_PATH, else $AZURE_CLIENT_CERTIFICATE_PATH)
 #   -A sas|oauth  how azcopy is authorized: a SAS created by this script, or
 #                 azcopy signing in itself (default: $PHOTO_AZ_TRANSFER, else sas)
-#   -t HOURS      SAS lifetime in hours, 1-167 (default 24)
+#   -c ask|yes|no what to do when a container does not exist in the account
+#                 (default: $PHOTO_AZ_CREATE_CONTAINERS, else ask):
+#                   ask   ask before creating each missing container (needs a
+#                         terminal; without one the script stops instead)
+#                   yes   create missing containers without asking
+#                   no    never create containers; stop if one is missing
+#                 New containers are private (no public access). With -n
+#                 nothing is created or asked; the output says which
+#                 containers would be created. Creating a container needs the
+#                 same 'Storage Blob Data Contributor' role. Not used with -R.
+#   -t HOURS      SAS lifetime in hours, 1-167 (default 48)
 #   -T TIER       blob tier: Hot, Cool, Cold or Archive (default: the account's)
 #   -O            replace a blob when the local file is newer
 #                 (default: never replace a blob that is already there)
@@ -79,14 +91,18 @@
 #   PHOTO_AZ_KEYCHAIN_SERVICE  Keychain item holding the secret, stored with the
 #                           app ID as its account (default: photo-tools-azure)
 #   PHOTO_AZ_TRANSFER       sas or oauth (same as -A)
+#   PHOTO_AZ_CREATE_CONTAINERS  ask, yes or no (same as -c)
 #   PHOTO_UPLOAD_RETRY      retry folder root (same as -r)
+#   PHOTO_UPLOAD_IGNORE_EXTENSIONS  comma-separated extensions to ignore
+#                           (default: nef,zip; empty disables ignoring)
 #   PHOTO_UPLOAD_LOGS       where run reports and azcopy logs go
 #                           (default: ~/.photo-tools/upload-runs)
 #   PHOTO_UPLOAD_VERBOSE    1 = verbose (same as -v)
 #   Options given on the command line win over these.
 #
 # Exit status: 0 all files uploaded (or already there), 2 some files failed
-# and were moved to the retry folder, 1 nothing was uploaded (error).
+# and were moved to the retry folder, 1 nothing was uploaded (error, or a
+# missing container was not created).
 #
 # Requires: Azure CLI (brew install azure-cli), azcopy (brew install azcopy),
 # jq (included with macOS 15 and later; otherwise brew install jq).
@@ -102,7 +118,9 @@ TENANT_ID="${PHOTO_AZ_TENANT_ID:-${AZURE_TENANT_ID:-}}"
 CERT_PATH="${PHOTO_AZ_CERT_PATH:-${AZURE_CLIENT_CERTIFICATE_PATH:-}}"
 KEYCHAIN_SERVICE="${PHOTO_AZ_KEYCHAIN_SERVICE:-photo-tools-azure}"
 TRANSFER="${PHOTO_AZ_TRANSFER:-sas}"
+CREATE="${PHOTO_AZ_CREATE_CONTAINERS:-ask}"
 RETRY_ROOT="${PHOTO_UPLOAD_RETRY:-}"
+IGNORE_EXTENSIONS="${PHOTO_UPLOAD_IGNORE_EXTENSIONS-nef,zip}"
 RUNS_ROOT="${PHOTO_UPLOAD_LOGS:-$HOME/.photo-tools/upload-runs}"
 case "${PHOTO_UPLOAD_VERBOSE:-0}" in 1|[Yy]*|[Tt]rue) VERBOSE=1 ;; *) VERBOSE=0 ;; esac
 
@@ -110,7 +128,7 @@ src_of() {        # where a setting came from: $1 = option letter, then env name
     local opt="$1" v; shift
     case "$OPTS_GIVEN" in *"$opt"*) echo "option -$opt"; return ;; esac
     for v in "$@"; do
-        if [ -n "$(printenv "$v")" ]; then echo "\$$v"; return; fi
+        if printenv "$v" >/dev/null 2>&1; then echo "\$$v"; return; fi
     done
     echo "default"
 }
@@ -119,7 +137,7 @@ HIDDEN_RE='(^|/)\.'             # skip hidden files and anything in hidden folde
 GENERAL_DIR="general"           # container folder for files directly inside DIR
 SHOW_FAILS=20                   # FAIL lines printed per container; all go in the report
 
-PREFIX=""; SAS_HOURS=24; TIER=""; OVERWRITE=0; RETRY_MODE=0; DRY_RUN=0
+PREFIX=""; SAS_HOURS=48; TIER=""; OVERWRITE=0; RETRY_MODE=0; DRY_RUN=0
 SPEC_LINES=""                   # CONTAINER=DIR lines from -u and -m
 OPTS_GIVEN=""                   # option letters used, for the -v settings list
 ERR_LINES=3                     # lines of az error output shown (all of them with -v)
@@ -156,7 +174,7 @@ trace() {         # run a command; with -v log it (secrets hidden), its exit cod
 NL='
 '
 
-while getopts ":a:u:m:p:r:RI:i:z:K:A:t:T:Onvh" opt; do
+while getopts ":a:u:m:p:r:e:RI:i:z:K:A:c:t:T:Onvh" opt; do
     OPTS_GIVEN="$OPTS_GIVEN$opt"
     case "$opt" in
         a) ACCOUNT="$OPTARG" ;;
@@ -165,12 +183,14 @@ while getopts ":a:u:m:p:r:RI:i:z:K:A:t:T:Onvh" opt; do
            SPEC_LINES="$SPEC_LINES$(cat "$OPTARG")$NL" ;;
         p) PREFIX="$OPTARG" ;;
         r) RETRY_ROOT="$OPTARG" ;;
+        e) IGNORE_EXTENSIONS="$OPTARG" ;;
         R) RETRY_MODE=1 ;;
         I) AUTH="$OPTARG" ;;
         i) CLIENT_ID="$OPTARG" ;;
         z) TENANT_ID="$OPTARG" ;;
         K) CERT_PATH="$OPTARG" ;;
         A) TRANSFER="$OPTARG" ;;
+        c) CREATE="$OPTARG" ;;
         t) SAS_HOURS="$OPTARG" ;;
         T) TIER="$OPTARG" ;;
         O) OVERWRITE=1 ;;
@@ -225,6 +245,8 @@ case "$ACCOUNT" in *[!a-z0-9]*) die "storage account '$ACCOUNT' may only contain
 
 case "$AUTH" in user|sp) ;; *) die "-I must be 'user' or 'sp', got '$AUTH'." ;; esac
 case "$TRANSFER" in sas|oauth) ;; *) die "-A must be 'sas' or 'oauth', got '$TRANSFER'." ;; esac
+CREATE=$(printf '%s' "$CREATE" | tr '[:upper:]' '[:lower:]')
+case "$CREATE" in ask|yes|no) ;; *) die "-c must be 'ask', 'yes' or 'no', got '$CREATE'." ;; esac
 case "$SAS_HOURS" in ''|*[!0-9]*) die "-t must be a whole number of hours, got '$SAS_HOURS'." ;; esac
 [ "$SAS_HOURS" -ge 1 ] && [ "$SAS_HOURS" -le 167 ] || die "-t must be 1-167 hours (a user delegation SAS lasts at most 7 days)."
 case "$(printf '%s' "$TIER" | tr '[:upper:]' '[:lower:]')" in
@@ -240,6 +262,13 @@ case "$PREFIX" in *[!A-Za-z0-9._/-]*) die "-p may only use letters, digits, '.',
 if [ -n "$PREFIX" ]; then
     case "/$PREFIX/" in *//*|*/./*|*/../*) die "-p has an empty, '.' or '..' folder: '$PREFIX'." ;; esac
 fi
+IGNORE_EXTENSIONS=$(printf '%s' "$IGNORE_EXTENSIONS" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+case "$IGNORE_EXTENSIONS" in
+    "" ) ;;
+    ,*|*,|*,,*|*[!a-z0-9,]*) die "-e must be a comma-separated list of filename extensions (letters and digits only)." ;;
+esac
+IGNORE_EXTENSIONS_RE=""
+[ -z "$IGNORE_EXTENSIONS" ] || IGNORE_EXTENSIONS_RE="|(?i)\.($(printf '%s' "$IGNORE_EXTENSIONS" | tr ',' '|'))$"
 
 if [ "$AUTH" = "sp" ]; then
     missing=""
@@ -312,8 +341,10 @@ if [ "$VERBOSE" -eq 1 ]; then
         vlog "setting secret    = $(if [ -n "${PHOTO_AZ_CLIENT_SECRET:-}" ]; then echo "set in \$PHOTO_AZ_CLIENT_SECRET"; elif [ -n "${AZURE_CLIENT_SECRET:-}" ]; then echo "set in \$AZURE_CLIENT_SECRET"; else echo "not in the environment (Keychain item '$KEYCHAIN_SERVICE' is tried)"; fi)"
     fi
     vlog "setting transfer  = $TRANSFER  [$(src_of A PHOTO_AZ_TRANSFER)]"
+    vlog "setting create    = $CREATE  [$(src_of c PHOTO_AZ_CREATE_CONTAINERS)]"
     vlog "setting prefix    = ${PREFIX:-<none>}; SAS hours = $SAS_HOURS; tier = ${TIER:-<account default>}; overwrite = $([ "$OVERWRITE" -eq 1 ] && echo ifSourceNewer || echo false); retry mode = $RETRY_MODE; dry run = $DRY_RUN"
     vlog "setting retry     = ${RETRY_ROOT:-DIR/.upload-retry}  [$(src_of r PHOTO_UPLOAD_RETRY)]"
+    vlog "setting ignored extensions = ${IGNORE_EXTENSIONS:-<none>}  [$(src_of e PHOTO_UPLOAD_IGNORE_EXTENSIONS)]"
     vlog "setting logs      = $RUNS_ROOT  [$(src_of x PHOTO_UPLOAD_LOGS)]"
     i=0
     while [ $i -lt ${#E_C[@]} ]; do
@@ -399,7 +430,26 @@ fi
 [ "$RETRY_MODE" -eq 0 ] || log "Mode:    retry (only files in the retry folders)"
 log ""
 
+# Ask whether to create a missing container ($1); 0 = go ahead.
+confirm_create() {
+    case "$CREATE" in
+        yes) return 0 ;;
+        no)  return 1 ;;
+    esac
+    if [ ! -t 0 ]; then
+        echo "Container '$1' does not exist, and there is no terminal to ask on. Use -c yes to create it." >&2
+        return 1
+    fi
+    local ans
+    printf "Container '%s' does not exist in storage account '%s'. Create it (private)? [y/N] " "$1" "$ACCOUNT" >&2
+    read -r ans || ans=""
+    case "$ans" in [Yy]|[Yy][Ee][Ss]) return 0 ;; esac
+    return 1
+}
+
 checked="|"
+MISSING="|"                     # containers that do not exist yet (dry run only)
+CREATED="|"                     # containers created by this run
 i=0
 while [ $i -lt ${#E_C[@]} ]; do
     c="${E_C[$i]}"; i=$((i + 1))
@@ -418,7 +468,24 @@ while [ $i -lt ${#E_C[@]} ]; do
         exit 1
     fi
     vlog "container $c exists: $out"
-    [ "$out" = "true" ] || die "container '$c' does not exist in storage account '$ACCOUNT'. Create it first (this script never creates containers)."
+    if [ "$out" != "true" ]; then
+        [ "$RETRY_MODE" -eq 0 ] || die "container '$c' does not exist in storage account '$ACCOUNT', so there is nothing to retry."
+        if [ "$DRY_RUN" -eq 1 ]; then
+            [ "$CREATE" != "no" ] || die "container '$c' does not exist in storage account '$ACCOUNT' (-c no: not creating containers)."
+            MISSING="$MISSING$c|"
+            continue
+        fi
+        confirm_create "$c" || die "container '$c' does not exist in storage account '$ACCOUNT' and was not created. Use -c yes to create missing containers, or create it yourself first."
+        if ! trace az storage container create --account-name "$ACCOUNT" -n "$c" --auth-mode login \
+                 --query created -o tsv > /dev/null 2> "$WORK/exists.err"; then
+            echo "Error: cannot create container '$c' in '$ACCOUNT' as $IDENTITY:" >&2
+            sed -e '/^[[:space:]]*$/d' "$WORK/exists.err" | head -n "$ERR_LINES" | redact | sed 's/^/  /' >&2
+            echo "  $IDENTITY needs the 'Storage Blob Data Contributor' role on storage account $ACCOUNT." >&2
+            exit 1
+        fi
+        log "Created container '$c' in '$ACCOUNT'."
+        CREATED="$CREATED$c|"
+    fi
     # "exists" only needs a management role such as Owner; reading blobs needs
     # a data role, which uploads need too, so check that before uploading.
     if ! trace az storage blob list --account-name "$ACCOUNT" -c "$c" --auth-mode login \
@@ -454,8 +521,8 @@ done
 if [ ${#J_C[@]} -eq 0 ]; then log "Nothing to do."; exit 0; fi
 
 # $1 = folder, $2 = prefix -> "relative path<TAB>size<TAB>blob name" lines,
-# hidden files skipped. Each first-level subfolder keeps its name in the
-# container; files directly inside the folder go into GENERAL_DIR.
+# hidden and ignored-extension files skipped. Each first-level subfolder keeps
+# its name in the container; files directly inside go into GENERAL_DIR.
 list_files() {
     if [ "$RETRY_MODE" -eq 1 ]; then
         (cd "$1" && find . \( -type f -o \( -type l -exec test -f {} \; \) \) ! -path '*/.*' -exec stat -L -f '%N%t%z' {} + 2>/dev/null)
@@ -463,8 +530,22 @@ list_files() {
         (cd "$1" && find . -type f ! -path '*/.*' -exec stat -f '%N%t%z' {} + 2>/dev/null)
     fi |
         sed 's|^\./||' | LC_ALL=C sort |
-        awk -F'\t' -v OFS='\t' -v bp="${2:+$2/}" -v g="$GENERAL_DIR" '
-            NF == 2 { print $1, $2, bp (index($1, "/") ? $1 : g "/" $1) }'
+        awk -F'\t' -v OFS='\t' -v bp="${2:+$2/}" -v g="$GENERAL_DIR" -v ignored="$IGNORE_EXTENSIONS" '
+            BEGIN {
+                n = split(ignored, parts, ",")
+                for (i = 1; i <= n; i++) if (parts[i] != "") skip[parts[i]] = 1
+            }
+            NF == 2 {
+                name = $1
+                sub(/^.*\//, "", name)
+                ext = ""
+                if (name ~ /\./) {
+                    ext = name
+                    sub(/^.*\./, "", ext)
+                }
+                if (!(tolower(ext) in skip))
+                    print $1, $2, bp (index($1, "/") ? $1 : g "/" $1)
+            }'
 }
 
 # A loose file and a file of the same name in DIR/general/ would both become
@@ -488,6 +569,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
         n=$(wc -l < "$WORK/list" | tr -d ' ')
         loose=$(awk -F'\t' 'index($1, "/") == 0' "$WORK/list" | wc -l | tr -d ' ')
         bytes=$(awk -F'\t' '{ s += $2 } END { printf "%d", s }' "$WORK/list")
+        case "$MISSING" in *"|$c|"*) log "$c: container does not exist; WOULD be created (private)" ;; esac
         log "$c: WOULD upload $n file(s), $(size_h "$bytes")"
         log "    from  $src"
         log "    to    https://$ACCOUNT.$BLOB_SUFFIX/$c/${bp:+$bp/}"
@@ -515,6 +597,7 @@ fi
     echo "identity  $IDENTITY ($CRED_DESC)"
     echo "access    $TRANSFER"
     [ "$RETRY_MODE" -eq 0 ] || echo "mode      retry"
+    [ "$CREATED" = "|" ] || echo "created   containers: $(printf '%s' "${CREATED#|}" | sed -e 's/|$//' -e 's/|/, /g')"
     echo ""
 } > "$REPORT"
 
@@ -600,10 +683,10 @@ while [ $j -lt ${#J_C[@]} ]; do
     for pass in sub loose; do
         if [ "$pass" = "sub" ]; then
             pass_n=$((n - loose)); pass_url="$url"
-            copy_args=(copy "$src/*" "$pass_url" --recursive --exclude-regex "$HIDDEN_RE|^[^/]+\$")
+            copy_args=(copy "$src/*" "$pass_url" --recursive --exclude-regex "$HIDDEN_RE|^[^/]+\$${IGNORE_EXTENSIONS_RE}")
         else
             pass_n=$loose; pass_url="$dest/$GENERAL_DIR${sas:+?$sas}"
-            copy_args=(copy "$src/*" "$pass_url" --exclude-regex "$HIDDEN_RE")
+            copy_args=(copy "$src/*" "$pass_url" --exclude-regex "$HIDDEN_RE${IGNORE_EXTENSIONS_RE}")
         fi
         [ "$pass_n" -gt 0 ] || continue
         copy_args+=(--put-md5 --block-size-mb=40 --cap-mbps=0
