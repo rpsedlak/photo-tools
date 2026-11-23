@@ -1110,8 +1110,19 @@ try {
         try { $null = [IO.Directory]::CreateDirectory($dir) } catch { Stop-Import "cannot create $dir" }
         # Remember the event for these NEFs, in case the run is interrupted and resumed.
         $eventFile = Join-Path $dir '.event'
-        if ($ext -eq 'NEF' -and -not [IO.File]::Exists($eventFile)) {
-            [IO.File]::WriteAllText($eventFile, $EventSlug + "`n", $utf8NoBom)
+        if ($ext -eq 'NEF') {
+            if ([IO.File]::Exists($eventFile)) {
+                try { $pendingEvents = @([IO.File]::ReadAllLines($eventFile)) }
+                catch { Stop-Import "cannot read pending event from $eventFile" }
+                if ($pendingEvents.Count -gt 0) {
+                    $pendingEvent = $pendingEvents[0].Trim()
+                    if ($pendingEvent -and $pendingEvent -ne $EventSlug) {
+                        Stop-Import "finish pending event '$pendingEvent' for $d before importing '$EventSlug'."
+                    }
+                }
+            } else {
+                [IO.File]::WriteAllText($eventFile, $EventSlug + "`n", $utf8NoBom)
+            }
         }
 
         # Free target name (camera counters roll over: DSC_0001 can repeat).
