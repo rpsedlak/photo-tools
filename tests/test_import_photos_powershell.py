@@ -91,6 +91,55 @@ $restored = Restore-FiledPhoto $env:FILED_PATH $env:SOURCE_PATH
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), [True, True, True, True])
 
+    def test_dng_output_must_be_complete_and_valid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "photo.dng"
+            path.write_bytes(b"partial")
+            result = self.run_function(
+                "Test-DngOutput",
+                r"""
+function Invoke-ExifTool {
+    param([string[]]$ToolArgs, [string[]]$CommonArgs)
+    $script:ExifExit = 0
+    if ($ToolArgs -contains '-Validate') { $env:DNG_VALIDATION }
+    else { $env:DNG_VERSION }
+}
+$valid = Test-DngOutput $env:DNG_PATH
+$empty = Test-DngOutput $env:EMPTY_DNG_PATH
+@($valid, $empty) | ConvertTo-Json -Compress
+""",
+                {
+                    "DNG_PATH": str(path),
+                    "EMPTY_DNG_PATH": str(Path(tmp) / "empty.dng"),
+                    "DNG_VALIDATION": "OK",
+                    "DNG_VERSION": "1.4.0.0",
+                },
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), [True, False])
+
+    def test_dng_output_with_validation_errors_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "photo.dng"
+            path.write_bytes(b"truncated")
+            result = self.run_function(
+                "Test-DngOutput",
+                r"""
+function Invoke-ExifTool {
+    param([string[]]$ToolArgs, [string[]]$CommonArgs)
+    $script:ExifExit = 0
+    if ($ToolArgs -contains '-Validate') { '1 error' }
+    else { '1.4.0.0' }
+}
+Test-DngOutput $env:DNG_PATH
+""",
+                {"DNG_PATH": str(path)},
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "False")
+
 
 if __name__ == "__main__":
     unittest.main()

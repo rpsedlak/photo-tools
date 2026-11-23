@@ -692,6 +692,18 @@ function Get-DngCount {
     $n
 }
 
+function Test-DngOutput {
+    param([string]$Path)
+    if (-not [IO.File]::Exists($Path)) { return $false }
+    try {
+        if ((New-Object IO.FileInfo $Path).Length -eq 0) { return $false }
+    } catch { return $false }
+    $validation = @(Invoke-ExifTool @('-validate', '-s3', '-Validate', $Path))
+    if ($script:ExifExit -ne 0 -or $validation.Count -ne 1 -or $validation[0] -ne 'OK') { return $false }
+    $version = @(Invoke-ExifTool @('-s3', '-DNGVersion', $Path))
+    return ($script:ExifExit -eq 0 -and $version.Count -eq 1 -and -not [string]::IsNullOrWhiteSpace($version[0]))
+}
+
 # Adobe DNG Converter is a GUI program, so '&' would not wait for it: start it, then poll.
 function Invoke-DngConvert {
     param([string[]]$Files, [string]$OutDir, [long]$Start)
@@ -808,15 +820,36 @@ function Invoke-DateStep {  # rename, drop duplicates, convert, write copyright,
         $toConvert = New-Object 'System.Collections.Generic.List[string]'
         foreach ($f in $nefs) {
             $stem = [IO.Path]::GetFileNameWithoutExtension($f)
-            if (-not [IO.File]::Exists((Join-Path $din "$stem.dng")) -and
-                -not [IO.File]::Exists((Join-Path $din "$stem.DNG"))) {
-                $toConvert.Add($f)
+            $existingDng = ''
+            foreach ($c in @((Join-Path $din "$stem.dng"), (Join-Path $din "$stem.DNG"))) {
+                if ([IO.File]::Exists($c)) { $existingDng = $c; break }
             }
+            if ($existingDng) {
+                if (Test-DngOutput $existingDng) { continue }
+                Write-Err "WARN  removing incomplete DNG: $existingDng"
+                try { [IO.File]::Delete($existingDng) } catch { Write-Err "FAIL  could not remove incomplete DNG: $existingDng" }
+            }
+            $toConvert.Add($f)
         }
         $t0 = Get-ElapsedSec
         if ($toConvert.Count -gt 0) { Invoke-DngConvert $toConvert.ToArray() $din $t0 }
         Clear-Status
         if ($toConvert.Count -gt 0) { Write-Line "          converted in $(Format-Hms ((Get-ElapsedSec) - $t0))" }
+
+        $validDngs = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+        foreach ($f in $nefs) {
+            $stem = [IO.Path]::GetFileNameWithoutExtension($f)
+            foreach ($c in @((Join-Path $din "$stem.dng"), (Join-Path $din "$stem.DNG"))) {
+                if (-not [IO.File]::Exists($c)) { continue }
+                if (Test-DngOutput $c) {
+                    $null = $validDngs.Add($c)
+                } else {
+                    Write-Err "WARN  removing incomplete DNG: $c"
+                    try { [IO.File]::Delete($c) } catch { Write-Err "FAIL  could not remove incomplete DNG: $c" }
+                }
+                break
+            }
+        }
 
         $dates = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([StringComparer]::Ordinal)
         $dateArgs = @('-q', '-q', '-m', '-f', '-ext', 'nef', '-d', '%Y%m%d', '-p', ('$FileName' + "`t" + '$DateTimeOriginal'), $inc)
@@ -834,7 +867,7 @@ function Invoke-DateStep {  # rename, drop duplicates, convert, write copyright,
                 $base = [IO.Path]::GetFileName($f)
                 $stem = [IO.Path]::GetFileNameWithoutExtension($f)
                 foreach ($c in @((Join-Path $din "$stem.dng"), (Join-Path $din "$stem.DNG"))) {
-                    if (-not [IO.File]::Exists($c)) { continue }
+                    if (-not $validDngs.Contains($c)) { continue }
                     $dt = ''
                     if ($dates.ContainsKey($base)) { $dt = $dates[$base] }
                     if (-not (Test-Ymd $dt)) { $dt = $Day }
@@ -868,7 +901,7 @@ function Invoke-DateStep {  # rename, drop duplicates, convert, write copyright,
             $stem = [IO.Path]::GetFileNameWithoutExtension($f)
             $dng = ''
             foreach ($c in @((Join-Path $din "$stem.dng"), (Join-Path $din "$stem.DNG"))) {
-                if ([IO.File]::Exists($c)) { $dng = $c }
+                if ($validDngs.Contains($c)) { $dng = $c }
             }
             if (-not $dng) {
                 Write-Err "FAIL  DNG conversion: $Day/NEF/.incoming/$base (re-run to retry)"
