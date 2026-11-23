@@ -706,7 +706,7 @@ tools/phototools_update.sh             # install missing prerequisites and updat
 
 Add `-v` to `prereqs.sh`, `update.sh` or `install.sh` for verbose output (how each tool is looked up and which commands are run).
 
-- `tools/phototools_update.sh` upgrades only dependencies managed by Homebrew; macOS-provided `jq` and manually installed DNG Converter copies are left unchanged. After installation, run `update.sh` from your `PATH`.
+- `tools/phototools_update.sh` upgrades only dependencies managed by Homebrew; macOS-provided `jq` and manually installed DNG Converter copies are left unchanged. After installation, run `phototools_update.sh` from your `PATH`.
 - Adobe's DNG Converter installer asks for your password.
 - If exiftool is installed but not on your `PATH`, the script says so and shows the line to add to `~/.zprofile`.
 - If DNG Converter lives somewhere other than `/Applications`, set `DNG_CONVERTER` to its path; both `tools/phototools_prereqs.sh` and `phototools_import_photos.sh` use it.
