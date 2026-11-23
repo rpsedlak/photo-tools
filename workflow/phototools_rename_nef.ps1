@@ -193,5 +193,6 @@ if ($DryRun) {
     Write-Output 'Dry run complete - nothing was changed.'
 } else {
     Write-Output "Renamed: $renamed   Skipped: $skipped   Failed: $failed"
+    if ($failed -gt 0) { exit 2 }
 }
 exit 0

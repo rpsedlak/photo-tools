@@ -436,6 +436,9 @@ if ($sPrefix -ne '') {
     if ($wrapped.Contains('//') -or $wrapped.Contains('/./') -or $wrapped.Contains('/../')) {
         Die "-Prefix has an empty, '.' or '..' folder: '$sPrefix'."
     }
+    foreach ($segment in $sPrefix.Split('/')) {
+        if ($segment.StartsWith('.')) { Die "-Prefix cannot contain dot-prefixed folders: '$sPrefix'." }
+    }
 }
 
 if ($sAuth -eq 'sp') {
@@ -1135,7 +1138,6 @@ no credential for service principal $sClientId. Provide one of:
                         continue
                     }
                     # Legacy retry files were moved, so restore them to their source path.
-                    $manDrop.Add("$cont`t$blob")
                     $moved = $false
                     if ($orig -eq '') { $note = "uploaded, but no original path is recorded; left at $entryPath" }
                     elseif (Test-Entry $orig) { $note = "uploaded, but $orig already exists; left at $entryPath" }
@@ -1148,7 +1150,7 @@ no credential for service principal $sClientId. Provide one of:
                         catch { $moved = $false }
                         if (-not $moved) { $note = "uploaded, but could not move it back to $orig; left at $entryPath" }
                     }
-                    if ($moved) { continue }
+                    if ($moved) { $manDrop.Add("$cont`t$blob"); continue }
                     $keptBack++
                     Write-Err "NOTE  $cont/${blob}: $note"
                     Add-Text $Report "NOTE  $cont  ${blob}: $note`n"

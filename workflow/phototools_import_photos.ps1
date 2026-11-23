@@ -468,7 +468,13 @@ function Move-ToFinal {
     $srcStem = [IO.Path]::Combine([IO.Path]::GetDirectoryName($Src), $stem)
     foreach ($side in @("$Src.xmp", "$Src.XMP", "$srcStem.xmp", "$srcStem.XMP")) {
         if (-not [IO.File]::Exists($side)) { continue }
-        $sideTarget = Join-Path $FinalDir ([IO.Path]::GetFileName($side))
+        $sideExt = [IO.Path]::GetExtension($side)
+        if ($side.StartsWith("$Src.", [StringComparison]::Ordinal)) {
+            $sideTarget = "$target$sideExt"
+        } else {
+            $targetStem = [IO.Path]::GetFileNameWithoutExtension($target)
+            $sideTarget = Join-Path $FinalDir "$targetStem$sideExt"
+        }
         if (Test-PathExists $sideTarget) { continue }
         try { [IO.File]::Move($side, $sideTarget) } catch { Write-Verbose "sidecar $side was not moved: $_" }
     }
@@ -476,12 +482,18 @@ function Move-ToFinal {
 
 # Same photo => same capture-time name (rename_nef adds _1, _2 on clashes).
 function Test-Duplicate {
-    param([string]$File, [string]$FinalDir, $Names)
+    param([string]$File, [string]$FinalDir, $Names, [string[]]$AdditionalFiles = @())
     $stem = [IO.Path]::GetFileNameWithoutExtension($File)
     $root = [regex]::Replace($stem, '_[1-9][0-9]{0,2}$', '')
     $r1 = $root + '.'
     $r2 = $root + '_'
-    foreach ($name in $Names) {
+    $timestamp = [regex]::Match($root, '^([0-9]{14})')
+    $candidates = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($name in $Names) { $candidates.Add((Join-Path $FinalDir $name)) }
+    foreach ($candidate in $AdditionalFiles) { $candidates.Add($candidate) }
+    foreach ($candidate in $candidates) {
+        if (-not [IO.Path]::GetExtension($candidate).Equals('.nef', [StringComparison]::OrdinalIgnoreCase)) { continue }
+        $name = [IO.Path]::GetFileName($candidate)
         $hit = $false
         if ($name.StartsWith($r1, $nameCompare)) {
             $hit = $true
@@ -489,7 +501,13 @@ function Test-Duplicate {
             $c = $name[$r2.Length]
             if ($c -ge [char]'1' -and $c -le [char]'9' -and $name.IndexOf('.', $r2.Length + 1) -ge 0) { $hit = $true }
         }
-        if ($hit -and (Compare-FileBytes $File (Join-Path $FinalDir $name))) { return $true }
+        if (-not $hit -and $timestamp.Success) {
+            $candidateStem = [IO.Path]::GetFileNameWithoutExtension($candidate)
+            $candidateRoot = [regex]::Replace($candidateStem, '_[1-9][0-9]{0,2}$', '')
+            $candidateTimestamp = [regex]::Match($candidateRoot, '^([0-9]{14})(?=$|[0-9-])')
+            $hit = $candidateTimestamp.Success -and $candidateTimestamp.Groups[1].Value -eq $timestamp.Groups[1].Value
+        }
+        if ($hit -and (Compare-FileBytes $File $candidate)) { return $true }
     }
     return $false
 }
@@ -515,7 +533,11 @@ function Invoke-Rename {
         if ($line.StartsWith('OK ', [StringComparison]::Ordinal)) {
             $state.N++
             Show-Status (Get-IntDiv ($state.N * 100) $Total) "          renaming... $($state.N)/$Total"
-        } elseif ($line.StartsWith('FAIL', [StringComparison]::Ordinal) -or $line.StartsWith('SKIP', [StringComparison]::Ordinal)) {
+        } elseif ($line.StartsWith('FAIL', [StringComparison]::Ordinal)) {
+            $script:Failed++
+            Clear-Status
+            Write-Err "          $line"
+        } elseif ($line.StartsWith('SKIP', [StringComparison]::Ordinal)) {
             Clear-Status
             Write-Err "          $line"
         } elseif ($line.StartsWith('Renamed:', [StringComparison]::Ordinal)) {
@@ -531,7 +553,7 @@ function Restore-NefZip {
     param([string]$Day)
     $dir = Join-Path $script:DestRoot $Day
     $zipPath = Join-Path $dir 'NEF.zip'
-    if (-not ($script:CompressNef -and [IO.File]::Exists($zipPath))) { return $true }
+    if (-not [IO.File]::Exists($zipPath)) { return $true }
     Write-Line "${Day}: unpacking NEF.zip..."
     $zip = $null
     try {
@@ -719,11 +741,14 @@ function Invoke-DateStep {  # rename, drop duplicates, convert, write copyright,
 
     # Drop any NEF that is byte-identical to one already imported.
     $names = Get-FolderNames $nd
+    $accepted = New-Object 'System.Collections.Generic.List[string]'
     foreach ($f in @(Get-IncomingFiles $inc 'nef')) {
-        if (Test-Duplicate $f $nd $names) {
+        if (Test-Duplicate $f $nd $names $accepted.ToArray()) {
             Write-Line "          duplicate of an existing photo, skipped: $([IO.Path]::GetFileName($f))"
             [IO.File]::Delete($f)
             $script:Dupes++
+        } else {
+            $accepted.Add($f)
         }
     }
     $nefs = @(Get-IncomingFiles $inc 'nef')        # sorted = capture order after renaming
@@ -1049,6 +1074,19 @@ try {
         if (-not $SkipDng -and $CompressNef) { Write-Line "and each date's NEF/ folder zipped to <date>/NEF.zip" }
         $script:Finished = $true
         exit 0
+    }
+
+    $eventDays = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    foreach ($item in $todo) {
+        if ($item.Ext -ne 'NEF' -or -not $eventDays.Add($item.Date)) { continue }
+        $inc = Join-Path (Join-Path (Join-Path $DestRoot $item.Date) 'NEF') '.incoming'
+        $eventFile = Join-Path $inc '.event'
+        if (-not [IO.File]::Exists($eventFile)) { continue }
+        try { $pendingEvent = [IO.File]::ReadAllText($eventFile).Trim() }
+        catch { Stop-Import "cannot read pending event file '$eventFile'." }
+        if ($pendingEvent -and -not $pendingEvent.Equals($EventSlug, [StringComparison]::Ordinal)) {
+            Stop-Import "NEFs for $($item.Date) are still waiting for event '$pendingEvent'; finish that import before staging event '$EventSlug'."
+        }
     }
 
     # ---------- 2. copy + verify ----------
