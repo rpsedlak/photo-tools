@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# update.sh - install missing prerequisites, then update photo-tools dependencies.
+# phototools_update.sh - install missing prerequisites, then update photo-tools dependencies.
 #
 # Updates only Homebrew-managed dependencies used by this repository. The jq
 # command supplied by macOS is left alone.
 #
 # Usage:
-#   update.sh [-v]
+#   phototools_update.sh [-v]
 #     -v   verbose: show the Homebrew commands run and which dependencies are
 #          (or are not) managed by Homebrew (default: off)
 #
@@ -32,8 +32,8 @@ shift $((OPTIND - 1))
 [ "$(uname -s)" = "Darwin" ] || die "photo-tools requires macOS."
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-PREREQS="$SCRIPT_DIR/prereqs.sh"
-[ -f "$PREREQS" ] || die "prereqs.sh not found. Reinstall photo-tools using install/install.sh."
+PREREQS="$SCRIPT_DIR/phototools_prereqs.sh"
+[ -f "$PREREQS" ] || die "phototools_prereqs.sh not found. Reinstall photo-tools using install/install.sh."
 
 BREW=$(command -v brew 2>/dev/null || true)
 if [ -z "$BREW" ]; then

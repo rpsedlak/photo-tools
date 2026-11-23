@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# rename_nef.sh — rename Nikon NEF files using capture time stored in EXIF.
+# phototools_rename_nef.sh — rename Nikon NEF files using capture time stored in EXIF.
 #                 Include camera Make and Model by default. With -e, other
 #                 types (e.g. the JPG of a RAW+JPEG shot) can be renamed too.
 #
@@ -14,7 +14,7 @@
 # the timestamp-only name is used with a warning.
 #
 # Usage:
-#   ./rename_nef.sh [-n] [-r] [-m] [-v] [-e EXT] DIRECTORY
+#   ./phototools_rename_nef.sh [-n] [-r] [-m] [-v] [-e EXT] DIRECTORY
 #     -n       dry run: show what would be renamed, change nothing
 #              (over 500 files: warns it can take several minutes and asks to continue)
 #     -r       recurse into subdirectories

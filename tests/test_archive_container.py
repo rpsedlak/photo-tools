@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "cloud" / "archive_container.sh"
+SCRIPT = Path(__file__).resolve().parents[1] / "cloud" / "phototools_archive_container.sh"
 
 FAKE_AZ = """#!/usr/bin/env python3
 import json, os, sys

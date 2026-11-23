@@ -3,13 +3,13 @@
 # install.sh — install the prerequisites, then copy the photo-tools scripts
 #              into /usr/local/bin.
 #
-# First runs tools/prereqs.sh, which installs anything missing (exiftool,
+# First runs tools/phototools_prereqs.sh, which installs anything missing (exiftool,
 # Adobe DNG Converter, Azure CLI, azcopy and jq) with Homebrew; stops if that
 # fails.
 #
-# Then installs every *.sh in the repository's tool directories (workflow/,
-# cloud/, tools/, ...) with mode 755: everyone can read and run them, only the owner can modify
-# them. sudo is used only when the destination isn't writable by you.
+# Then installs every *.sh in the repository's tool directories and every
+# stream-deck/*.command with mode 755. sudo is used only when the destination
+# isn't writable by you.
 #
 # Usage:
 #   install/install.sh [-n] [-v] [-d DEST]
@@ -46,13 +46,14 @@ shift $((OPTIND - 1))
 [ -n "$DEST" ] || die "destination is empty."
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-[ -f "$REPO/cloud/upload_azure.sh" ] || die "required script cloud/upload_azure.sh not found."
+[ -f "$REPO/cloud/phototools_upload_azure.sh" ] || die "required script cloud/phototools_upload_azure.sh not found."
 
-# Tool scripts live one level down: <repo>/<tool-dir>/<script>.sh
+# Tool scripts live one level down; Stream Deck launchers use .command.
 SCRIPTS=()
 while IFS= read -r f; do
     SCRIPTS+=("$f")
-done < <(find "$REPO" -mindepth 2 -maxdepth 2 -type f -name '*.sh' \
+done < <(find "$REPO" -mindepth 2 -maxdepth 2 -type f \
+              \( -name '*.sh' -o \( -path "$REPO/stream-deck/*.command" -a -name '*.command' \) \) \
               ! -path "$REPO/install/*" ! -path "$REPO/.*" | sort)
 [ ${#SCRIPTS[@]} -gt 0 ] || die "no scripts found in $REPO."
 vlog "repository: $REPO; destination: $DEST; dry run: $DRY_RUN"
@@ -65,13 +66,13 @@ $dupes"
 
 echo "Checking prerequisites..."
 PREREQ_OPTS=""; [ "$DRY_RUN" -eq 0 ] || PREREQ_OPTS="-n"; [ "$VERBOSE" -eq 0 ] || PREREQ_OPTS="$PREREQ_OPTS -v"
-vlog "running: bash $REPO/tools/prereqs.sh$([ -z "$PREREQ_OPTS" ] || echo " $PREREQ_OPTS")"
+vlog "running: bash $REPO/tools/phototools_prereqs.sh$([ -z "$PREREQ_OPTS" ] || echo " $PREREQ_OPTS")"
 if [ "$DRY_RUN" -eq 1 ]; then
     # shellcheck disable=SC2086
-    bash "$REPO/tools/prereqs.sh" $PREREQ_OPTS
+    bash "$REPO/tools/phototools_prereqs.sh" $PREREQ_OPTS
 else
     # shellcheck disable=SC2086
-    bash "$REPO/tools/prereqs.sh" $PREREQ_OPTS || die "prerequisites are not ready (see above). Fix them and re-run."
+    bash "$REPO/tools/phototools_prereqs.sh" $PREREQ_OPTS || die "prerequisites are not ready (see above). Fix them and re-run."
 fi
 echo ""
 

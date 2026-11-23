@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# import_photos.sh — import photos from one SD card onto a destination disk.
+# phototools_import_photos.sh — import photos from one SD card onto a destination disk.
 #
 #   1. COPY    Every file in the card's DCIM folder is copied (never moved —
 #              the card is left untouched) into a folder for its capture date,
@@ -16,7 +16,7 @@
 #              RAW+JPEG shots (DSC_0001.NEF + DSC_0001.JPG) are both copied,
 #              each to its own extension folder.
 #   2. RENAME  The newly imported NEFs and JPGs are renamed to their capture
-#              time by rename_nef.sh (same folder as this script), so they sort
+#              time by phototools_rename_nef.sh (same folder as this script), so they sort
 #              by time and RAW+JPEG pairs share a name. The camera's Make and
 #              Model are included by default:
 #                  20261017/NEF/2026101720184537_Nikon-Z-8.NEF
@@ -57,7 +57,7 @@
 #     never get a second DNG. New JPGs are checked the same way.
 #
 # Usage:
-#   ./import_photos.sh -e EVENT [options]
+#   ./phototools_import_photos.sh -e EVENT [options]
 #
 #   -e EVENT     event name (required). "Detroit Riverwalk" -> detroit-riverwalk
 #   -c OWNER     copyright owner written into each new DNG, e.g. "Richard Sedlak"
@@ -95,7 +95,7 @@
 #                  medium preview). See Adobe's DNG Converter command-line notes.
 #
 # Requires: exiftool (brew install exiftool), Adobe DNG Converter (free,
-# from Adobe), rename_nef.sh next to this script, and zip + unzip (stock on
+# from Adobe), phototools_rename_nef.sh next to this script, and zip + unzip (stock on
 # macOS) unless NEF compression is off.
 # Works with the stock macOS bash 3.2.
 
@@ -114,7 +114,7 @@ case "$(printf '%s' "${PHOTO_COMPRESS_NEF:-1}" | tr '[:upper:]' '[:lower:]')" in
 esac
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-RENAME_NEF="$SCRIPT_DIR/rename_nef.sh"
+RENAME_NEF="$SCRIPT_DIR/phototools_rename_nef.sh"
 
 EVENT_RAW=""; SOURCE=""; FORCE_DATE=""; VERIFY_BYTES=0; SKIP_DNG=0; CAMERA_NAME=1
 TODAY_ONLY=0; FORCE=0; EJECT=0; DRY_RUN=0; VERBOSE=0
@@ -238,7 +238,7 @@ if [ "$COMPRESS_NEF" -eq 1 ] && [ "$SKIP_DNG" -eq 0 ] && [ "$DRY_RUN" -eq 0 ]; t
     command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1 || \
         die "zip/unzip not found. Install them, or use -z (or PHOTO_COMPRESS_NEF=0) to skip NEF compression."
 fi
-[ -f "$RENAME_NEF" ] || die "rename_nef.sh not found next to this script ($SCRIPT_DIR)."
+[ -f "$RENAME_NEF" ] || die "phototools_rename_nef.sh not found next to this script ($SCRIPT_DIR)."
 if [ "$SKIP_DNG" -eq 0 ] && [ "$DRY_RUN" -eq 0 ] && [ ! -x "$DNG_CONVERTER" ]; then
     die "Adobe DNG Converter not found at:
   $DNG_CONVERTER
@@ -516,7 +516,7 @@ is_duplicate() {  # $1 = renamed NEF/JPG in .incoming, $2 = its final dir
     return 1
 }
 
-run_rename() {    # $1 = .incoming dir, $2 = file count, then any rename_nef.sh options
+run_rename() {    # $1 = .incoming dir, $2 = file count, then any phototools_rename_nef.sh options
     local inc="$1" total="$2" n=0 line
     shift 2
     [ "$VERBOSE" -eq 0 ] || set -- -v "$@"

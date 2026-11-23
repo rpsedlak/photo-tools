@@ -1,29 +1,24 @@
 #!/usr/bin/env bash
 #
-# prune_nef.sh — archive (or remove) NEF files in an Azure Blob account that are
-#                no longer needed, to save storage costs.
+# phototools_archive_container.sh — move every blob in a named Azure Blob container to the
+#                        Archive access tier, to save storage costs.
 #
-#   RULES    1. Every NEF.zip blob (a name ending in NEF.zip) is pruned.
-#            2. A .nef blob is pruned only when a non-empty matching .dng is
-#               in the same folder or the DNG/ folder beside NEF/, ignoring case.
 #   SAFETY   Nothing is changed by default. The tool shows what it found, then
 #            asks once before acting (it needs a terminal to ask on). Use -y to
 #            skip the question, or -n to only report.
-#   PRUNE    Pruned blobs are moved to the Archive access tier (cheapest
-#            storage; reading a blob again takes hours and has a 180 day
-#            minimum charge). Blobs already archived are skipped. With -D they
-#            are deleted permanently instead.
+#   ARCHIVE  Blobs are moved to the Archive access tier (cheapest storage;
+#            reading a blob again takes hours and has a 180 day minimum
+#            charge). Blobs already archived are skipped, as are blob types
+#            that cannot be archived (only block blobs can).
 #
 # Usage:
-#   prune_nef.sh [-a ACCOUNT] [-c CONTAINER ...] [-p PREFIX] [-D] [-n | -y] [-l]
-#                [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
+#   phototools_archive_container.sh [-a ACCOUNT] -c CONTAINER [-n | -y] [-l]
+#                        [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
 #
 #   -a ACCOUNT    storage account name (default: $PHOTO_AZ_ACCOUNT)
-#   -c CONTAINER  only this container; repeat for several (default: all)
-#   -p PREFIX     only blobs whose name starts with PREFIX; include NEF and DNG folders
-#   -D            delete permanently instead of archiving (the default)
-#   -n            dry run: report containers, folders and counts, change nothing
-#   -y            do not ask; archive (or with -D, delete) right away
+#   -c CONTAINER  the container to archive (required)
+#   -n            dry run: report folders and counts, change nothing
+#   -y            do not ask; archive right away
 #   -l            list every blob (not just the counts per folder)
 #   -I user|sp    Azure identity (default: $PHOTO_AZ_AUTH, else user)
 #   -i APP_ID     service principal app ID (default: $PHOTO_AZ_CLIENT_ID, else $AZURE_CLIENT_ID)
@@ -44,7 +39,7 @@
 #   (client ID, tenant, certificate and secret also fall back to their AZURE_* names)
 #
 # Exit status: 0 done (or nothing to do, or not confirmed), 2 some blobs could
-# not be pruned, 1 error.
+# not be archived, 1 error.
 #
 # Requires: Azure CLI, Python 3.
 # Works with the stock macOS bash 3.2.
@@ -57,25 +52,19 @@ CLIENT_ID="${PHOTO_AZ_CLIENT_ID:-${AZURE_CLIENT_ID:-}}"
 TENANT_ID="${PHOTO_AZ_TENANT_ID:-${AZURE_TENANT_ID:-}}"
 CERT_PATH="${PHOTO_AZ_CERT_PATH:-${AZURE_CLIENT_CERTIFICATE_PATH:-}}"
 KEYCHAIN_SERVICE="${PHOTO_AZ_KEYCHAIN_SERVICE:-photo-tools-azure}"
-CONTAINERS=""
-PREFIX=""
-ARCHIVE=1
+CONTAINER=""
 DRY_RUN=0
 FORCE=0
 LIST=0
 VERBOSE=0
-NL='
-'
 
 usage() { sed -n '/^# Usage:/,/^# Environment/p' "$0" | sed -e 's/^# \{0,1\}//' -e '$d' >&2; exit 1; }
 die() { echo "Error: $*" >&2; exit 1; }
 
-while getopts ":a:c:p:DnylvhI:i:z:K:" opt; do
+while getopts ":a:c:nylvhI:i:z:K:" opt; do
     case "$opt" in
         a) ACCOUNT="$OPTARG" ;;
-        c) [ -n "$OPTARG" ] || die "-c requires a non-empty container name."; CONTAINERS="$CONTAINERS$OPTARG$NL" ;;
-        p) PREFIX="$OPTARG" ;;
-        D) ARCHIVE=0 ;;
+        c) CONTAINER="$OPTARG" ;;
         n) DRY_RUN=1 ;;
         y) FORCE=1 ;;
         l) LIST=1 ;;
@@ -95,6 +84,11 @@ case "$ACCOUNT" in *[!a-z0-9]*) die "invalid storage account name '$ACCOUNT'." ;
 if [ "${#ACCOUNT}" -lt 3 ] || [ "${#ACCOUNT}" -gt 24 ]; then
     die "storage account names must be 3–24 lowercase letters or digits."
 fi
+[ -n "$CONTAINER" ] || die "container is required; pass -c."
+case "$CONTAINER" in
+    *[!a-z0-9-]*|-*|*-|*--*) die "'$CONTAINER' is not a valid container name." ;;
+esac
+[ "${#CONTAINER}" -ge 3 ] && [ "${#CONTAINER}" -le 63 ] || die "'$CONTAINER' is not a valid container name (3-63 characters)."
 case "$AUTH" in user|sp) ;; *) die "-I must be 'user' or 'sp', got '$AUTH'." ;; esac
 if [ "$AUTH" = "sp" ]; then
     missing=""
@@ -104,15 +98,6 @@ if [ "$AUTH" = "sp" ]; then
   tenant ID:       -z, PHOTO_AZ_TENANT_ID or AZURE_TENANT_ID"
     [ -z "$missing" ] || die "service principal sign-in (-I sp) needs:$missing"
 fi
-while IFS= read -r c; do
-    [ -n "$c" ] || continue
-    case "$c" in
-        *[!a-z0-9-]*|-*|*-|*--*) die "'$c' is not a valid container name." ;;
-    esac
-    [ "${#c}" -ge 3 ] && [ "${#c}" -le 63 ] || die "'$c' is not a valid container name (3-63 characters)."
-done <<EOF
-$CONTAINERS
-EOF
 
 command -v az >/dev/null 2>&1 || die "Azure CLI (az) is required."
 command -v python3 >/dev/null 2>&1 || die "Python 3 is required."
@@ -137,7 +122,7 @@ if [ "$AUTH" = "sp" ]; then
         [ -n "$SECRET" ] || die "no credential for service principal $CLIENT_ID. Provide a certificate with -K, PHOTO_AZ_CERT_PATH or AZURE_CLIENT_CERTIFICATE_PATH; a client secret with PHOTO_AZ_CLIENT_SECRET or AZURE_CLIENT_SECRET; or a Keychain item (service '$KEYCHAIN_SERVICE')."
     fi
 
-    AZ_DIR=$(mktemp -d "${TMPDIR:-/tmp}/photo-prune-az.XXXXXX") || die "cannot create a temporary Azure CLI profile."
+    AZ_DIR=$(mktemp -d "${TMPDIR:-/tmp}/photo-archive-az.XXXXXX") || die "cannot create a temporary Azure CLI profile."
     chmod 700 "$AZ_DIR"
     export AZURE_CONFIG_DIR="$AZ_DIR"
     if [ -n "$CERT_PATH" ]; then
@@ -163,10 +148,9 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
-ACCOUNT, CONTAINERS, PREFIX, ARCHIVE, DRY_RUN, FORCE, LIST, VERBOSE, HAVE_TTY = sys.argv[1:]
-CONTAINERS = [c for c in CONTAINERS.split("\n") if c]
-ARCHIVE, DRY_RUN, FORCE, LIST, VERBOSE, HAVE_TTY = (
-    value == "1" for value in (ARCHIVE, DRY_RUN, FORCE, LIST, VERBOSE, HAVE_TTY)
+ACCOUNT, CONTAINER, DRY_RUN, FORCE, LIST, VERBOSE, HAVE_TTY = sys.argv[1:]
+DRY_RUN, FORCE, LIST, VERBOSE, HAVE_TTY = (
+    value == "1" for value in (DRY_RUN, FORCE, LIST, VERBOSE, HAVE_TTY)
 )
 WORKERS = 8
 
@@ -194,7 +178,8 @@ def properties_of(blob):
     properties = blob.get("properties") or {}
     size = properties.get("contentLength", properties.get("content_length", blob.get("contentLength", 0)))
     tier = properties.get("blobTier", properties.get("blob_tier", properties.get("accessTier", properties.get("access_tier", ""))))
-    return int(size or 0), tier or ""
+    kind = properties.get("blobType", properties.get("blob_type", blob.get("blobType", "BlockBlob")))
+    return int(size or 0), tier or "", kind or "BlockBlob"
 
 
 def split_name(name):
@@ -203,109 +188,64 @@ def split_name(name):
 
 
 def classify(blobs):
-    """Return pruned blobs, already archived count, and unmatched NEF names."""
-    dngs = {
-        blob.get("name", "").lower()
-        for blob in blobs
-        if blob.get("name", "").lower().endswith(".dng") and properties_of(blob)[0] > 0
-    }
-    pruned, archived, kept = [], 0, []
+    """Return blobs to archive, already archived names, and non-block blob names."""
+    planned, archived, unsupported = [], [], []
     for blob in blobs:
         name = blob.get("name", "")
-        lower = name.lower()
-        base = lower.rpartition("/")[2]
-        size, tier = properties_of(blob)
-        if base == "nef.zip" or base.endswith(".nef.zip"):
-            reason = "NEF.zip"
-        elif lower.endswith(".nef"):
-            folder, _, filename = lower.rpartition("/")
-            same_folder = lower[:-4] + ".dng"
-            parent, separator, leaf = folder.rpartition("/")
-            sibling = (parent + separator if separator else "") + "dng/" + filename[:-4] + ".dng"
-            if same_folder not in dngs and not (leaf == "nef" and sibling in dngs):
-                kept.append(name)
-                continue
-            reason = "NEF"
+        size, tier, kind = properties_of(blob)
+        if kind.lower() != "blockblob":
+            unsupported.append(name)
+        elif tier.lower() == "archive":
+            archived.append(name)
         else:
-            continue
-        if ARCHIVE and tier.lower() == "archive":
-            archived += 1
-            continue
-        pruned.append((name, size, reason))
-    return pruned, archived, kept
+            planned.append((name, size))
+    return planned, archived, unsupported
 
 
 def gigabytes(size_bytes):
     return size_bytes / 1_000_000_000
 
 
-def prune_one(container, name):
-    if ARCHIVE:
-        result = run_az(
-            "storage", "blob", "set-tier", "--account-name", ACCOUNT, "--container-name", container,
-            "--name=" + name, "--tier", "Archive", "--auth-mode", "login", "--only-show-errors",
-        )
-    else:
-        result = run_az(
-            "storage", "blob", "delete", "--account-name", ACCOUNT, "--container-name", container,
-            "--name=" + name, "--delete-snapshots", "include", "--auth-mode", "login", "--only-show-errors",
-        )
+def archive_one(name):
+    result = run_az(
+        "storage", "blob", "set-tier", "--account-name", ACCOUNT, "--container-name", CONTAINER,
+        "--name=" + name, "--tier", "Archive", "--auth-mode", "login", "--only-show-errors",
+    )
     return result.returncode == 0, result.stderr.strip()
 
 
 def main():
-    verb = "archived" if ARCHIVE else "deleted"
-    mode = "archive" if ARCHIVE else "delete"
-    if CONTAINERS:
-        containers = CONTAINERS
-    else:
-        data = az_json("storage", "container", "list", "--account-name", ACCOUNT,
-                       "--auth-mode", "login", "--num-results", "*")
-        containers = sorted(container["name"] for container in data)
-
-    print("NEF pruning: {} (mode: {}{})".format(ACCOUNT, mode, ", dry run" if DRY_RUN else ""))
-    if PREFIX:
-        print("Only blobs starting with: {}".format(PREFIX))
-    plan = []
-    total_archived = 0
-    total_kept = 0
-    for container in containers:
-        args = ["storage", "blob", "list", "--account-name", ACCOUNT, "--container-name", container,
-                "--auth-mode", "login", "--num-results", "*"]
-        if PREFIX:
-            args += ["--prefix", PREFIX]
-        pruned, archived, kept = classify(az_json(*args))
-        total_archived += archived
-        total_kept += len(kept)
-        print("")
-        print("Container: {}".format(container))
-        print("  NEF files kept (no matching non-empty DNG): {}".format(len(kept)))
-        if LIST:
-            for name in sorted(kept):
-                print("    {} (kept)".format(name))
-        if not pruned:
-            print("  nothing to {}".format("archive" if ARCHIVE else "delete"))
-            continue
+    print("Archive container: {}/{}{}".format(ACCOUNT, CONTAINER, " (dry run)" if DRY_RUN else ""))
+    plan, archived, unsupported = classify(az_json(
+        "storage", "blob", "list", "--account-name", ACCOUNT, "--container-name", CONTAINER,
+        "--auth-mode", "login", "--num-results", "*"))
+    print("")
+    if plan:
         folders = {}
-        for name, size, reason in pruned:
-            row = folders.setdefault(split_name(name)[0], [0, 0, 0])
-            row[0 if reason == "NEF.zip" else 1] += 1
-            row[2] += size
-        print("  {:<52} {:>8} {:>8} {:>10}".format("Folder", "NEF.zip", "NEF", "Size (GB)"))
+        for name, size in plan:
+            row = folders.setdefault(split_name(name)[0], [0, 0])
+            row[0] += 1
+            row[1] += size
+        print("  {:<52} {:>8} {:>10}".format("Folder", "Blobs", "Size (GB)"))
         for folder in sorted(folders):
             row = folders[folder]
-            print("  {:<52} {:>8} {:>8} {:>10.3f}".format(folder or "(container root)", row[0], row[1], gigabytes(row[2])))
+            print("  {:<52} {:>8} {:>10.3f}".format(folder or "(container root)", row[0], gigabytes(row[1])))
         if LIST:
-            for name, size, reason in sorted(pruned):
-                print("    {} ({}, {:.3f} GB)".format(name, reason, gigabytes(size)))
-        plan.extend((container, name, size) for name, size, _ in pruned)
+            for name, size in sorted(plan):
+                print("    {} ({:.3f} GB)".format(name, gigabytes(size)))
+    else:
+        print("  nothing to archive")
+    if LIST:
+        for name in sorted(archived):
+            print("    {} (already in Archive tier, skipped)".format(name))
+        for name in sorted(unsupported):
+            print("    {} (skipped, not a block blob)".format(name))
 
-    total_bytes = sum(size for _, _, size in plan)
+    total_bytes = sum(size for _, size in plan)
     print("")
-    print("Total: {} blob(s), {:.3f} GB to {}".format(len(plan), gigabytes(total_bytes), "archive" if ARCHIVE else "delete"))
-    print("NEF files kept (no matching non-empty DNG): {}".format(total_kept))
-    if ARCHIVE:
-        print("Already in the Archive tier (skipped): {}".format(total_archived))
+    print("Total: {} blob(s), {:.3f} GB to archive".format(len(plan), gigabytes(total_bytes)))
+    print("Already in the Archive tier (skipped): {}".format(len(archived)))
+    print("Blobs that cannot be archived (skipped): {}".format(len(unsupported)))
     if not plan:
         return 0
     if DRY_RUN:
@@ -314,15 +254,12 @@ def main():
 
     if not FORCE:
         if not HAVE_TTY:
-            print("Error: nothing was changed. There is no terminal to ask on; run again with -y to {}.".format(
-                "archive" if ARCHIVE else "delete"), file=sys.stderr)
+            print("Error: nothing was changed. There is no terminal to ask on; run again with -y to archive.",
+                  file=sys.stderr)
             return 1
-        if ARCHIVE:
-            question = "Move {} blob(s) ({:.3f} GB) in '{}' to the Archive tier? They take hours to read again. [y/N] "
-        else:
-            question = "Permanently delete {} blob(s) ({:.3f} GB) from '{}'? This cannot be undone. [y/N] "
+        question = "Move {} blob(s) ({:.3f} GB) in '{}' to the Archive tier? They take hours to read again. [y/N] "
         try:
-            answer = input(question.format(len(plan), gigabytes(total_bytes), ACCOUNT))
+            answer = input(question.format(len(plan), gigabytes(total_bytes), CONTAINER))
         except EOFError:
             answer = ""
         if answer.strip().lower() not in ("y", "yes"):
@@ -333,19 +270,19 @@ def main():
     done = 0
     step = -1
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        results = pool.map(lambda item: prune_one(item[0], item[1]), plan)
-        for (container, name, _), (ok, error) in zip(plan, results):
+        results = pool.map(lambda item: archive_one(item[0]), plan)
+        for (name, _), (ok, error) in zip(plan, results):
             done += 1
             if not ok:
-                failures.append((container, name, error))
+                failures.append((name, error))
             if done * 10 // len(plan) != step:
                 step = done * 10 // len(plan)
                 print("  {}/{} processed".format(done, len(plan)), flush=True)
-    print("{} {} blob(s).".format(verb.capitalize(), len(plan) - len(failures)))
+    print("Archived {} blob(s).".format(len(plan) - len(failures)))
     if failures:
         print("Failed: {} blob(s):".format(len(failures)), file=sys.stderr)
-        for container, name, error in failures:
-            print("  {}/{}: {}".format(container, name, error.splitlines()[-1] if error else "unknown error"), file=sys.stderr)
+        for name, error in failures:
+            print("  {}/{}: {}".format(CONTAINER, name, error.splitlines()[-1] if error else "unknown error"), file=sys.stderr)
         return 2
     return 0
 
@@ -357,4 +294,4 @@ except (OSError, RuntimeError, ValueError, KeyError) as error:
     sys.exit(1)
 PY
 
-python3 -c "$PY" "$ACCOUNT" "$CONTAINERS" "$PREFIX" "$ARCHIVE" "$DRY_RUN" "$FORCE" "$LIST" "$VERBOSE" "$HAVE_TTY"
+python3 -c "$PY" "$ACCOUNT" "$CONTAINER" "$DRY_RUN" "$FORCE" "$LIST" "$VERBOSE" "$HAVE_TTY"

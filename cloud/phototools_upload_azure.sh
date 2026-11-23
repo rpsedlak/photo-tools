@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# upload_azure.sh — upload photo folders to Azure Blob Storage, one container
+# phototools_upload_azure.sh — upload photo folders to Azure Blob Storage, one container
 #                   per category, with azcopy.
 #
 #   SIGN IN  As you (your existing `az login`), or as a service principal
@@ -23,7 +23,7 @@
 #            removes its link; the original stays where it was.
 #
 # Usage:
-#   upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
+#   phototools_upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
 #
 #   -a ACCOUNT    name of the Azure storage account that holds the containers:
 #                 the first part of https://ACCOUNT.blob.core.windows.net,

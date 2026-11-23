@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# rename_dng.sh — rename DNG files to YYYYMMDD-event-NNNNN.dng.
+# phototools_rename_dng.sh — rename DNG files to YYYYMMDD-event-NNNNN.dng.
 #
-# The event is normalized like import_photos.sh. The date comes from
+# The event is normalized like phototools_import_photos.sh. The date comes from
 # DateTimeOriginal, or the file modification date when that EXIF tag is absent.
 # Serials continue after the highest existing number for that date and event.
 #
 # Usage:
-#   ./rename_dng.sh [-n] [-r] [-v] -e EVENT DIRECTORY
+#   ./phototools_rename_dng.sh [-n] [-r] [-v] -e EVENT DIRECTORY
 #     -n       dry run: show what would be renamed, change nothing
 #              (over 500 files: warns it can take several minutes and asks to continue)
 #     -r       recurse into subdirectories

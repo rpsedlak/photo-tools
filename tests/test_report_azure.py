@@ -8,7 +8,7 @@ import unittest
 import zipfile
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "cloud" / "report_azure.sh"
+SCRIPT = Path(__file__).resolve().parents[1] / "cloud" / "phototools_report_azure.sh"
 
 
 @unittest.skipUnless(sys.platform == "darwin", "requires macOS file flags")

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# prereqs.sh — make sure the tools photo-tools needs are installed (macOS).
+# phototools_prereqs.sh — make sure the tools photo-tools needs are installed (macOS).
 #
 #   exiftool             Homebrew formula  (import_photos.sh, rename_nef.sh)
 #   Adobe DNG Converter  Homebrew cask     (import_photos.sh)
@@ -12,7 +12,7 @@
 # The DNG Converter cask runs Adobe's installer, which asks for your password.
 #
 # Usage:
-#   tools/prereqs.sh [-n] [-v]
+#   tools/phototools_prereqs.sh [-n] [-v]
 #     -n   check only: report what's missing, install nothing
 #     -v   verbose: show how each tool is looked for and the install commands
 #          run (default: off)
