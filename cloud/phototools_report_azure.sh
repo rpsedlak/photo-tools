@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# report_azure.sh — report read-only statistics for an Azure Blob account.
+# phototools_report_azure.sh — report read-only statistics for an Azure Blob account.
 #
 # Usage:
 #   report_azure.sh [-a ACCOUNT] [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-s | -d FILE] [-v]

@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
 #
-# archive_container.sh — move every blob in a named Azure Blob container to the
-#                        Archive access tier, to save storage costs.
+# phototools_unarchive_container.sh — move every archived blob in a named Azure Blob
+#                          container back to an online access tier (default Hot).
 #
-#   SAFETY   Nothing is changed by default. The tool shows what it found, then
-#            asks once before acting (it needs a terminal to ask on). Use -y to
-#            skip the question, or -n to only report.
-#   ARCHIVE  Blobs are moved to the Archive access tier (cheapest storage;
-#            reading a blob again takes hours and has a 180 day minimum
-#            charge). Blobs already archived are skipped, as are blob types
-#            that cannot be archived (only block blobs can).
+#   SAFETY     Nothing is changed by default. The tool shows what it found, then
+#              asks once before acting (it needs a terminal to ask on). Use -y to
+#              skip the question, or -n to only report.
+#   UNARCHIVE  Blobs in the Archive access tier are moved to the chosen tier.
+#              Azure rehydrates them in the background, which takes hours (up
+#              to 15 hours at standard priority); a blob stays in the Archive
+#              tier until that finishes. Blobs that are not archived, blobs
+#              already being rehydrated, and blob types that have no Archive
+#              tier (only block blobs do) are skipped.
 #
 # Usage:
-#   archive_container.sh [-a ACCOUNT] -c CONTAINER [-n | -y] [-l]
-#                        [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
+#   phototools_unarchive_container.sh [-a ACCOUNT] -c CONTAINER [-t TIER] [-n | -y] [-l]
+#                          [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
 #
 #   -a ACCOUNT    storage account name (default: $PHOTO_AZ_ACCOUNT)
-#   -c CONTAINER  the container to archive (required)
+#   -c CONTAINER  the container to unarchive (required)
+#   -t TIER       tier to move the blobs to: Hot, Cool or Cold (default: Hot)
 #   -n            dry run: report folders and counts, change nothing
-#   -y            do not ask; archive right away
+#   -y            do not ask; unarchive right away
 #   -l            list every blob (not just the counts per folder)
 #   -I user|sp    Azure identity (default: $PHOTO_AZ_AUTH, else user)
 #   -i APP_ID     service principal app ID (default: $PHOTO_AZ_CLIENT_ID, else $AZURE_CLIENT_ID)
@@ -39,7 +42,7 @@
 #   (client ID, tenant, certificate and secret also fall back to their AZURE_* names)
 #
 # Exit status: 0 done (or nothing to do, or not confirmed), 2 some blobs could
-# not be archived, 1 error.
+# not be moved, 1 error.
 #
 # Requires: Azure CLI, Python 3.
 # Works with the stock macOS bash 3.2.
@@ -53,6 +56,7 @@ TENANT_ID="${PHOTO_AZ_TENANT_ID:-${AZURE_TENANT_ID:-}}"
 CERT_PATH="${PHOTO_AZ_CERT_PATH:-${AZURE_CLIENT_CERTIFICATE_PATH:-}}"
 KEYCHAIN_SERVICE="${PHOTO_AZ_KEYCHAIN_SERVICE:-photo-tools-azure}"
 CONTAINER=""
+TIER="Hot"
 DRY_RUN=0
 FORCE=0
 LIST=0
@@ -61,10 +65,11 @@ VERBOSE=0
 usage() { sed -n '/^# Usage:/,/^# Environment/p' "$0" | sed -e 's/^# \{0,1\}//' -e '$d' >&2; exit 1; }
 die() { echo "Error: $*" >&2; exit 1; }
 
-while getopts ":a:c:nylvhI:i:z:K:" opt; do
+while getopts ":a:c:t:nylvhI:i:z:K:" opt; do
     case "$opt" in
         a) ACCOUNT="$OPTARG" ;;
         c) CONTAINER="$OPTARG" ;;
+        t) TIER="$OPTARG" ;;
         n) DRY_RUN=1 ;;
         y) FORCE=1 ;;
         l) LIST=1 ;;
@@ -89,6 +94,13 @@ case "$CONTAINER" in
     *[!a-z0-9-]*|-*|*-|*--*) die "'$CONTAINER' is not a valid container name." ;;
 esac
 [ "${#CONTAINER}" -ge 3 ] && [ "${#CONTAINER}" -le 63 ] || die "'$CONTAINER' is not a valid container name (3-63 characters)."
+TIER_LOWER=$(printf '%s' "$TIER" | tr '[:upper:]' '[:lower:]')
+case "$TIER_LOWER" in
+    hot) TIER="Hot" ;;
+    cool) TIER="Cool" ;;
+    cold) TIER="Cold" ;;
+    *) die "-t must be Hot, Cool or Cold, got '$TIER'." ;;
+esac
 case "$AUTH" in user|sp) ;; *) die "-I must be 'user' or 'sp', got '$AUTH'." ;; esac
 if [ "$AUTH" = "sp" ]; then
     missing=""
@@ -122,7 +134,7 @@ if [ "$AUTH" = "sp" ]; then
         [ -n "$SECRET" ] || die "no credential for service principal $CLIENT_ID. Provide a certificate with -K, PHOTO_AZ_CERT_PATH or AZURE_CLIENT_CERTIFICATE_PATH; a client secret with PHOTO_AZ_CLIENT_SECRET or AZURE_CLIENT_SECRET; or a Keychain item (service '$KEYCHAIN_SERVICE')."
     fi
 
-    AZ_DIR=$(mktemp -d "${TMPDIR:-/tmp}/photo-archive-az.XXXXXX") || die "cannot create a temporary Azure CLI profile."
+    AZ_DIR=$(mktemp -d "${TMPDIR:-/tmp}/photo-unarchive-az.XXXXXX") || die "cannot create a temporary Azure CLI profile."
     chmod 700 "$AZ_DIR"
     export AZURE_CONFIG_DIR="$AZ_DIR"
     if [ -n "$CERT_PATH" ]; then
@@ -148,7 +160,7 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
-ACCOUNT, CONTAINER, DRY_RUN, FORCE, LIST, VERBOSE, HAVE_TTY = sys.argv[1:]
+ACCOUNT, CONTAINER, TIER, DRY_RUN, FORCE, LIST, VERBOSE, HAVE_TTY = sys.argv[1:]
 DRY_RUN, FORCE, LIST, VERBOSE, HAVE_TTY = (
     value == "1" for value in (DRY_RUN, FORCE, LIST, VERBOSE, HAVE_TTY)
 )
@@ -179,7 +191,8 @@ def properties_of(blob):
     size = properties.get("contentLength", properties.get("content_length", blob.get("contentLength", 0)))
     tier = properties.get("blobTier", properties.get("blob_tier", properties.get("accessTier", properties.get("access_tier", ""))))
     kind = properties.get("blobType", properties.get("blob_type", blob.get("blobType", "BlockBlob")))
-    return int(size or 0), tier or "", kind or "BlockBlob"
+    rehydration = properties.get("rehydrationStatus", properties.get("rehydration_status", ""))
+    return int(size or 0), tier or "", kind or "BlockBlob", rehydration or ""
 
 
 def split_name(name):
@@ -188,35 +201,37 @@ def split_name(name):
 
 
 def classify(blobs):
-    """Return blobs to archive, already archived names, and non-block blob names."""
-    planned, archived, unsupported = [], [], []
+    """Return archived blobs to move, names already rehydrating, names not archived, and non-block blob names."""
+    planned, rehydrating, online, unsupported = [], [], [], []
     for blob in blobs:
         name = blob.get("name", "")
-        size, tier, kind = properties_of(blob)
+        size, tier, kind, rehydration = properties_of(blob)
         if kind.lower() != "blockblob":
             unsupported.append(name)
-        elif tier.lower() == "archive":
-            archived.append(name)
+        elif tier.lower() != "archive":
+            online.append(name)
+        elif rehydration:
+            rehydrating.append(name)
         else:
             planned.append((name, size))
-    return planned, archived, unsupported
+    return planned, rehydrating, online, unsupported
 
 
 def gigabytes(size_bytes):
     return size_bytes / 1_000_000_000
 
 
-def archive_one(name):
+def unarchive_one(name):
     result = run_az(
         "storage", "blob", "set-tier", "--account-name", ACCOUNT, "--container-name", CONTAINER,
-        "--name=" + name, "--tier", "Archive", "--auth-mode", "login", "--only-show-errors",
+        "--name=" + name, "--tier", TIER, "--auth-mode", "login", "--only-show-errors",
     )
     return result.returncode == 0, result.stderr.strip()
 
 
 def main():
-    print("Archive container: {}/{}{}".format(ACCOUNT, CONTAINER, " (dry run)" if DRY_RUN else ""))
-    plan, archived, unsupported = classify(az_json(
+    print("Unarchive container: {}/{} to the {} tier{}".format(ACCOUNT, CONTAINER, TIER, " (dry run)" if DRY_RUN else ""))
+    plan, rehydrating, online, unsupported = classify(az_json(
         "storage", "blob", "list", "--account-name", ACCOUNT, "--container-name", CONTAINER,
         "--auth-mode", "login", "--num-results", "*"))
     print("")
@@ -234,17 +249,20 @@ def main():
             for name, size in sorted(plan):
                 print("    {} ({:.3f} GB)".format(name, gigabytes(size)))
     else:
-        print("  nothing to archive")
+        print("  nothing to unarchive")
     if LIST:
-        for name in sorted(archived):
-            print("    {} (already in Archive tier, skipped)".format(name))
+        for name in sorted(rehydrating):
+            print("    {} (already being rehydrated, skipped)".format(name))
+        for name in sorted(online):
+            print("    {} (not in Archive tier, skipped)".format(name))
         for name in sorted(unsupported):
             print("    {} (skipped, not a block blob)".format(name))
 
     total_bytes = sum(size for _, size in plan)
     print("")
-    print("Total: {} blob(s), {:.3f} GB to archive".format(len(plan), gigabytes(total_bytes)))
-    print("Already in the Archive tier (skipped): {}".format(len(archived)))
+    print("Total: {} blob(s), {:.3f} GB to unarchive".format(len(plan), gigabytes(total_bytes)))
+    print("Already being rehydrated (skipped): {}".format(len(rehydrating)))
+    print("Not in the Archive tier (skipped): {}".format(len(online)))
     print("Blobs that cannot be archived (skipped): {}".format(len(unsupported)))
     if not plan:
         return 0
@@ -254,12 +272,12 @@ def main():
 
     if not FORCE:
         if not HAVE_TTY:
-            print("Error: nothing was changed. There is no terminal to ask on; run again with -y to archive.",
+            print("Error: nothing was changed. There is no terminal to ask on; run again with -y to unarchive.",
                   file=sys.stderr)
             return 1
-        question = "Move {} blob(s) ({:.3f} GB) in '{}' to the Archive tier? They take hours to read again. [y/N] "
+        question = "Move {} blob(s) ({:.3f} GB) in '{}' from the Archive tier to {}? Rehydration takes hours. [y/N] "
         try:
-            answer = input(question.format(len(plan), gigabytes(total_bytes), CONTAINER))
+            answer = input(question.format(len(plan), gigabytes(total_bytes), CONTAINER, TIER))
         except EOFError:
             answer = ""
         if answer.strip().lower() not in ("y", "yes"):
@@ -270,7 +288,7 @@ def main():
     done = 0
     step = -1
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        results = pool.map(lambda item: archive_one(item[0]), plan)
+        results = pool.map(lambda item: unarchive_one(item[0]), plan)
         for (name, _), (ok, error) in zip(plan, results):
             done += 1
             if not ok:
@@ -278,7 +296,7 @@ def main():
             if done * 10 // len(plan) != step:
                 step = done * 10 // len(plan)
                 print("  {}/{} processed".format(done, len(plan)), flush=True)
-    print("Archived {} blob(s).".format(len(plan) - len(failures)))
+    print("Requested {} blob(s) to be moved to the {} tier; Azure rehydrates them in the background.".format(len(plan) - len(failures), TIER))
     if failures:
         print("Failed: {} blob(s):".format(len(failures)), file=sys.stderr)
         for name, error in failures:
@@ -294,4 +312,4 @@ except (OSError, RuntimeError, ValueError, KeyError) as error:
     sys.exit(1)
 PY
 
-python3 -c "$PY" "$ACCOUNT" "$CONTAINER" "$DRY_RUN" "$FORCE" "$LIST" "$VERBOSE" "$HAVE_TTY"
+python3 -c "$PY" "$ACCOUNT" "$CONTAINER" "$TIER" "$DRY_RUN" "$FORCE" "$LIST" "$VERBOSE" "$HAVE_TTY"

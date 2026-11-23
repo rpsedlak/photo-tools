@@ -2,7 +2,7 @@
 
 A collection of photo management tools, grouped into directories by purpose.
 
-> **Production location:** In normal use the tools are installed with `install/install.sh` and run from **`/usr/local/bin`**, by name (e.g. `import_photos.sh -e "My Event"`). The exception is when they were installed somewhere else with `install/install.sh -d DIR`; then they run from that folder. This repository is the source; the `workflow/...` paths below show where each script lives in the repo, not where it runs from.
+> **Production location:** In normal use the tools are installed with `install/install.sh` and run from **`/usr/local/bin`**, by name (e.g. `phototools_import_photos.sh -e "My Event"`). The exception is when they were installed somewhere else with `install/install.sh -d DIR`; then they run from that folder. This repository is the source; the `workflow/...` paths below show where each script lives in the repo, not where it runs from.
 
 ## Repository layout
 
@@ -12,18 +12,18 @@ photo-tools/
 ├── install/
 │   ├── install.sh            # installs prerequisites, then copies every tool script into /usr/local/bin
 ├── workflow/                 # post-shoot workflow: SD card import and file organization
-│   ├── import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
-│   ├── rename_nef.sh         # rename NEFs/JPGs to capture time (used by import_photos.sh)
-│   └── rename_dng.sh         # rename DNGs by capture date, event and serial
+│   ├── phototools_import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
+│   ├── phototools_rename_nef.sh         # rename NEFs/JPGs to capture time (used by phototools_import_photos.sh)
+│   └── phototools_rename_dng.sh         # rename DNGs by capture date, event and serial
 ├── cloud/                    # cloud backup and sharing
-│   ├── upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
-│   ├── report_azure.sh       # read-only Azure Blob account statistics and Excel reports
-│   ├── prune_nef.sh          # archive (or delete) NEF.zip files and NEFs in Azure Blob Storage
-│   ├── archive_container.sh  # move a whole named Azure Blob container to the Archive tier
-│   └── unarchive_container.sh # move an archived Azure Blob container back to Hot (or Cool/Cold)
+│   ├── phototools_upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
+│   ├── phototools_report_azure.sh       # read-only Azure Blob account statistics and Excel reports
+│   ├── phototools_prune_nef.sh          # archive (or delete) NEF.zip files and NEFs in Azure Blob Storage
+│   ├── phototools_archive_container.sh  # move a whole named Azure Blob container to the Archive tier
+│   └── phototools_unarchive_container.sh # move an archived Azure Blob container back to Hot (or Cool/Cold)
 └── tools/                    # dependency management
-  ├── prereqs.sh            # checks for / installs required tools (via Homebrew)
-  └── update.sh             # updates Homebrew-managed dependencies
+  ├── phototools_prereqs.sh            # checks for / installs required tools (via Homebrew)
+  └── phototools_update.sh             # updates Homebrew-managed dependencies
 ```
 
 | Directory   | Purpose                                                            |
@@ -38,8 +38,8 @@ photo-tools/
 - Give each tool a `-v` option that shows what it is doing; it is off by default.
 - Put each tool in a top-level directory named for its purpose (e.g. `workflow/`). Create a new directory when a tool doesn't fit an existing one.
 - `install/install.sh` picks up every `*.sh` one level down (`<tool-dir>/<name>.sh`) automatically. Script names must be unique across all tool directories, since they're all installed into one folder.
-- Keep scripts that call each other in the same directory — `import_photos.sh` finds `rename_nef.sh` by looking next to itself.
-- If a new tool needs another program, add a check for it to `tools/prereqs.sh`.
+- Keep scripts that call each other in the same directory — `phototools_import_photos.sh` finds `phototools_rename_nef.sh` by looking next to itself.
+- If a new tool needs another program, add a check for it to `tools/phototools_prereqs.sh`.
 - Add the tool to the tree and table above, and give it a section under [Tools](#tools).
 
 ---
@@ -49,23 +49,23 @@ photo-tools/
 Use this procedure for each event: import all of its SD cards, rename the DNGs
 once importing is complete, process the photos in Lightroom or a similar
 application, then upload the complete event or date directory to Azure. The
-import script automatically calls `rename_nef.sh` to name NEFs and JPGs; run
-`rename_dng.sh` after all cards have been imported to give the DNGs their final
+import script automatically calls `phototools_rename_nef.sh` to name NEFs and JPGs; run
+`phototools_rename_dng.sh` after all cards have been imported to give the DNGs their final
 date-event-serial names.
 
 ```mermaid
 flowchart TD
-    A[SD card 1] --> B[import_photos.sh]
+    A[SD card 1] --> B[phototools_import_photos.sh]
     C[Additional SD cards] --> B
     B --> D[Copy and organize files; rename NEFs/JPGs automatically]
     D --> E[Convert NEFs to DNG]
     E --> F[Repeat import for every card for this event]
     F --> G[All cards imported?]
     G -- No --> B
-    G -- Yes --> H[rename_dng.sh once for each date DNG folder]
+    G -- Yes --> H[phototools_rename_dng.sh once for each date DNG folder]
     H --> I[Process photos in Lightroom or similar]
     I --> J[Select the complete event/date directory]
-    J --> K[upload_azure.sh]
+    J --> K[phototools_upload_azure.sh]
     K --> L[Azure Blob Storage]
     K --> M{Any upload failures?}
     M -- Yes --> N[Correct issue and retry with -R]
@@ -83,24 +83,24 @@ flowchart TD
 2. **Import every SD card for the event.** Use the same event name and
    destination for each card. Preview and then import the first card:
    ```bash
-   import_photos.sh -e "Detroit Riverwalk" -n
-   import_photos.sh -e "Detroit Riverwalk" -x
+   phototools_import_photos.sh -e "Detroit Riverwalk" -n
+   phototools_import_photos.sh -e "Detroit Riverwalk" -x
    ```
    For another card from the same event, identify its mount point with `-s` and
    run the import again:
    ```bash
-   import_photos.sh -e "Detroit Riverwalk" -s /Volumes/BACKUP -x
+   phototools_import_photos.sh -e "Detroit Riverwalk" -s /Volumes/BACKUP -x
    ```
    Repeat until all cards for the event have been imported. Importing cards
    separately lets the DNG serials continue from existing files and uses the
    import manifest to avoid importing the same files twice.
 3. **Rename DNGs after importing all cards.** For each date folder containing
-   DNGs, preview and then run `rename_dng.sh`. This renames them to
+   DNGs, preview and then run `phototools_rename_dng.sh`. This renames them to
    `YYYYMMDD-event-NNNNN.dng`; the serial continues after the highest existing
    number for that date and event.
    ```bash
-   rename_dng.sh -n -e "Detroit Riverwalk" "$PHOTO_IMPORT_DEST/20261017/DNG"
-   rename_dng.sh -e "Detroit Riverwalk" "$PHOTO_IMPORT_DEST/20261017/DNG"
+   phototools_rename_dng.sh -n -e "Detroit Riverwalk" "$PHOTO_IMPORT_DEST/20261017/DNG"
+   phototools_rename_dng.sh -e "Detroit Riverwalk" "$PHOTO_IMPORT_DEST/20261017/DNG"
    ```
    Repeat for each date's `DNG/` folder for the event.
 4. **Process the photos.** Open the complete event or date directory in
@@ -113,7 +113,7 @@ flowchart TD
    its subfolders—not just `DNG/`, `NEF/`, or `JPG/`. Set `PHOTO_AZ_ACCOUNT`
    once in your shell profile or pass `-a`.
    ```bash
-   upload_azure.sh -a ACCOUNT -u detroit-riverwalk="$PHOTO_IMPORT_DEST/20261017"
+   phototools_upload_azure.sh -a ACCOUNT -u detroit-riverwalk="$PHOTO_IMPORT_DEST/20261017"
    ```
    Replace the example path with the complete event/date directory you want
    backed up. The container must already exist and the identity needs the
@@ -122,7 +122,7 @@ flowchart TD
    originals in place. Correct the reported issue, then rerun the same upload
    mapping with `-R`:
    ```bash
-   upload_azure.sh -a ACCOUNT -u detroit-riverwalk="$PHOTO_IMPORT_DEST/20261017" -R
+   phototools_upload_azure.sh -a ACCOUNT -u detroit-riverwalk="$PHOTO_IMPORT_DEST/20261017" -R
    ```
    Repeat until the upload completes without failures.
 
@@ -131,15 +131,15 @@ prerequisites, and Azure authentication details.
 
 ## Tools
 
-> **Primary import tool:** `workflow/import_photos.sh` processes a camera SD
-> card. It calls `rename_nef.sh` automatically; see the [Workflow](#workflow)
+> **Primary import tool:** `workflow/phototools_import_photos.sh` processes a camera SD
+> card. It calls `phototools_rename_nef.sh` automatically; see the [Workflow](#workflow)
 > section for the complete import-to-cloud procedure.
 
-### `workflow/import_photos.sh` — Import and organize photos from an SD card
+### `workflow/phototools_import_photos.sh` — Import and organize photos from an SD card
 
 **Workflow:**
 1. **Copy** — Every file in the card's DCIM folder is copied (never moved; the card is left untouched) into folders by capture date and file type (`20261017/NEF/`, `20261017/JPG/`, …), and each copy is verified. Each date folder also gets an empty `prod/` folder next to `NEF/` and `DNG/`; if `prod/` already exists it is left exactly as it is.
-2. **Rename** — Newly imported NEFs and JPGs are renamed to their capture time with `rename_nef.sh`, so they sort chronologically. Timestamp filenames always include subseconds: missing EXIF values become `00`, and one-digit values are right-padded to two digits. Their EXIF camera Make and Model are included by default; other types (MOV, …) keep their camera names.
+2. **Rename** — Newly imported NEFs and JPGs are renamed to their capture time with `phototools_rename_nef.sh`, so they sort chronologically. Timestamp filenames always include subseconds: missing EXIF values become `00`, and one-digit values are right-padded to two digits. Their EXIF camera Make and Model are included by default; other types (MOV, …) keep their camera names.
 3. **Convert** — NEFs are converted with Adobe DNG Converter into the date folder's `DNG/`, using each NEF's date-time-camera filename stem. Conversion and copyright stamping are unchanged.
 4. **Copyright** — If a copyright owner is set (see [Copyright](#copyright)), each new DNG is stamped `© <year> <owner>`, with the year taken from that photo's capture date. NEFs are never modified.
 5. **Compress** — Once a date's NEFs are all converted and filed, its `NEF/` folder is zipped into `20261017/NEF.zip`, the zip is tested, and the `NEF/` folder is removed. Turn this off with `-z` or `PHOTO_COMPRESS_NEF=0`. It is skipped with `-k` (no DNGs were made) and while any NEF of that date is still waiting for a retry. If a later card adds NEFs to a date that already has a `NEF.zip`, the zip is unpacked first (so duplicates are still caught) and then re-zipped.
@@ -149,7 +149,7 @@ prerequisites, and Azure authentication details.
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-import_photos.sh -e EVENT [options]
+phototools_import_photos.sh -e EVENT [options]
 
 Required:
   -e EVENT     event name ("Detroit Riverwalk" -> detroit-riverwalk)
@@ -190,22 +190,22 @@ Environment overrides:
 export PHOTO_IMPORT_DEST="/Volumes/photos-01"
 
 # Preview what will happen
-import_photos.sh -e "Detroit Riverwalk" -n
+phototools_import_photos.sh -e "Detroit Riverwalk" -n
 
 # Preview only photos captured today
-import_photos.sh -e "Detroit Riverwalk" -today -n
+phototools_import_photos.sh -e "Detroit Riverwalk" -today -n
 
 # Camera Make and Model are included by default in NEF, JPG and DNG filenames
-import_photos.sh -e "Detroit Riverwalk" -n
+phototools_import_photos.sh -e "Detroit Riverwalk" -n
 
 # Import, then eject the card
-import_photos.sh -e "Detroit Riverwalk" -x
+phototools_import_photos.sh -e "Detroit Riverwalk" -x
 
 # Second card from the same shoot: DNG numbering continues where the first card left off
-import_photos.sh -e "Detroit Riverwalk" -s /Volumes/BACKUP -x
+phototools_import_photos.sh -e "Detroit Riverwalk" -s /Volumes/BACKUP -x
 
 # Override PHOTO_IMPORT_DEST for one import
-import_photos.sh -e "Detroit Riverwalk" -d /Volumes/alternate-archive -n
+phototools_import_photos.sh -e "Detroit Riverwalk" -d /Volumes/alternate-archive -n
 ```
 
 **Resulting archive layout:**
@@ -250,7 +250,7 @@ These are the fields Lightroom shows as Copyright, Creator and Copyright Status.
 
 **Tips:**
 - Run with `-n` first to preview.
-- Add `-v` to see what the script is doing: the settings in use, why each card file is skipped or imported, each copy, rename (the `rename_nef.sh` output is shown too), conversion and filing step. These lines start with `verbose:` and go to stderr.
+- Add `-v` to see what the script is doing: the settings in use, why each card file is skipped or imported, each copy, rename (the `phototools_rename_nef.sh` output is shown too), conversion and filing step. These lines start with `verbose:` and go to stderr.
 - Long steps show a live status line: files done out of the total, plus amount copied, elapsed time and estimated time left while copying and converting. When the output is redirected to a log file, a progress line is written every 10% instead.
 - If an import is interrupted, re-run the same command to finish it.
 - Use `-V` for byte-for-byte verification (slower; worthwhile with an unreliable card reader).
@@ -258,7 +258,7 @@ These are the fields Lightroom shows as Copyright, Creator and Copyright Status.
 
 ---
 
-### `workflow/rename_nef.sh` — Rename NEF (or JPG) files by capture time
+### `workflow/phototools_rename_nef.sh` — Rename NEF (or JPG) files by capture time
 
 Renames Nikon NEF files (and matching `.xmp` sidecars) using the EXIF `DateTimeOriginal` and `SubSecTimeOriginal` tags. Timestamp names always contain at least two subsecond digits: missing values become `00`, and one-digit values are right-padded (for example, `3` becomes `30`). The EXIF `Make` and `Model` are appended by default, producing names such as `2026101720184537-Nikon-Z-8.NEF`; `-m` explicitly keeps camera naming enabled. Missing camera tags produce a warning and a timestamp-only name. With `-e jpg`, JPGs can be renamed the same way so RAW+JPEG pairs share a name.
 
@@ -270,7 +270,7 @@ DSC_0143.JPG -> 2026101720184537-Nikon-Z-8.JPG      (with -e jpg)
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-rename_nef.sh [-n] [-r] [-m] [-v] [-e EXT] DIRECTORY
+phototools_rename_nef.sh [-n] [-r] [-m] [-v] [-e EXT] DIRECTORY
   -n       dry run: show what would be renamed, change nothing
            (with more than 500 files it warns that this can take several
            minutes and asks whether to continue)
@@ -286,13 +286,13 @@ If two shots share the exact same subsecond, a `_1`, `_2`, … suffix is added. 
 
 ---
 
-### `workflow/rename_dng.sh` — Rename DNG files by date, event, and serial
+### `workflow/phototools_rename_dng.sh` — Rename DNG files by date, event, and serial
 
-Renames DNG files to `YYYYMMDD-event-NNNNN.dng`. The event is normalized like `import_photos.sh` (for example, `Detroit Riverwalk` becomes `detroit-riverwalk`). The date comes from EXIF `DateTimeOriginal`, falling back to the file modification date when the tag is missing. Serials continue after the highest existing number for the same date and event.
+Renames DNG files to `YYYYMMDD-event-NNNNN.dng`. The event is normalized like `phototools_import_photos.sh` (for example, `Detroit Riverwalk` becomes `detroit-riverwalk`). The date comes from EXIF `DateTimeOriginal`, falling back to the file modification date when the tag is missing. Serials continue after the highest existing number for the same date and event.
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-rename_dng.sh [-n] [-r] [-v] -e EVENT DIRECTORY
+phototools_rename_dng.sh [-n] [-r] [-v] -e EVENT DIRECTORY
   -n       dry run: show what would be renamed, change nothing
            (with more than 500 files it warns that this can take several
            minutes and asks whether to continue)
@@ -306,15 +306,15 @@ For example, `IMG_1234.dng` might become `20261017-detroit-riverwalk-00008.dng` 
 
 ---
 
-### `cloud/report_azure.sh` — Report Azure Blob Storage usage
+### `cloud/phototools_report_azure.sh` — Report Azure Blob Storage usage
 
 Reports blob counts and total sizes for every container in a storage account. Sizes are reported in gigabytes (GB). It only lists containers and blobs; it does not create, change, or delete anything in Azure. The default summary is printed to the terminal. Detail mode writes an Excel workbook with an overall **Summary** tab first, followed by one tab per container containing each blob's name, size in GB, last-modified time, blob type, content type, and access tier.
 
-**Access:** By default, the report uses your existing `az login` identity. You can also use a service principal with `-I sp`, using the same credentials and environment variables as `upload_azure.sh` (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Reader** role at storage-account scope or a parent scope; container-scoped assignments alone cannot authorize the initial account-wide container listing. The report does not request or store account keys.
+**Access:** By default, the report uses your existing `az login` identity. You can also use a service principal with `-I sp`, using the same credentials and environment variables as `phototools_upload_azure.sh` (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Reader** role at storage-account scope or a parent scope; container-scoped assignments alone cannot authorize the initial account-wide container listing. The report does not request or store account keys.
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-report_azure.sh -a ACCOUNT [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-s | -d FILE.xlsx] [-v]
+phototools_report_azure.sh -a ACCOUNT [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-s | -d FILE.xlsx] [-v]
 
   -a ACCOUNT  storage account name (default: $PHOTO_AZ_ACCOUNT)
   -I user|sp  Azure identity (default: $PHOTO_AZ_AUTH, else user)
@@ -330,10 +330,10 @@ For service principal authentication, client secrets come from `PHOTO_AZ_CLIENT_
 
 ```bash
 # Print per-container and account-wide totals
-report_azure.sh -a rpsphotography001
+phototools_report_azure.sh -a rpsphotography001
 
 # Save a workbook (the output directory must already exist)
-report_azure.sh -a rpsphotography001 -d ~/Desktop/storage-report.xlsx
+phototools_report_azure.sh -a rpsphotography001 -d ~/Desktop/storage-report.xlsx
 ```
 
 Relative output paths are resolved from the current terminal directory. The report prints the full path of the workbook it writes.
@@ -342,24 +342,24 @@ The tool requires Azure CLI and Python 3. Set `PHOTO_AZ_ACCOUNT` once in your sh
 
 ---
 
-### `cloud/prune_nef.sh` — Archive or delete unneeded NEFs in Azure Blob Storage
+### `cloud/phototools_prune_nef.sh` — Archive or delete unneeded NEFs in Azure Blob Storage
 
 Saves storage cost by pruning raw files that are no longer needed:
 
 1. Every `NEF.zip` blob is pruned.
 2. A `.nef` blob is pruned only if a non-empty `.dng` in the same container has the same name apart from the extension, ignoring case. The DNG must be in the same folder or in the `DNG/` folder beside `NEF/`. Unmatched NEFs are kept and counted.
 
-Matching is by name, so run this tool before renaming DNGs with `rename_dng.sh`. When using `-p`, choose a prefix that includes both the NEF and DNG folders; DNGs outside the prefix are not considered.
+Matching is by name, so run this tool before renaming DNGs with `phototools_rename_dng.sh`. When using `-p`, choose a prefix that includes both the NEF and DNG folders; DNGs outside the prefix are not considered.
 
 **Nothing is changed by default.** The tool lists what it found, then asks once whether to go ahead (it needs a terminal to ask on; without one it stops and changes nothing). Use `-y` to skip the question, or `-n` for a dry run that only reports. By default pruned blobs are moved to the **Archive** access tier (the cheapest tier, but reading a blob again takes hours and has a 180-day minimum charge); blobs already in the Archive tier are skipped. With `-D` they are deleted permanently instead.
 
 The report shows, for each container, each folder with the number of `NEF.zip` and `NEF` blobs to prune and their size, plus totals and the number of unmatched NEFs kept. Add `-l` to list planned and kept blob names.
 
-**Access:** The same sign-in as `upload_azure.sh`: your `az login` identity, or a service principal with `-I sp` using the same options, environment variables and secret sources (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Contributor** role, and listing all containers needs it at storage-account scope (use `-c` for container-scoped assignments).
+**Access:** The same sign-in as `phototools_upload_azure.sh`: your `az login` identity, or a service principal with `-I sp` using the same options, environment variables and secret sources (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Contributor** role, and listing all containers needs it at storage-account scope (use `-c` for container-scoped assignments).
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-prune_nef.sh [-a ACCOUNT] [-c CONTAINER ...] [-p PREFIX] [-D] [-n | -y] [-l] [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
+phototools_prune_nef.sh [-a ACCOUNT] [-c CONTAINER ...] [-p PREFIX] [-D] [-n | -y] [-l] [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
 
   -a ACCOUNT    storage account name (default: $PHOTO_AZ_ACCOUNT)
   -c CONTAINER  only this container; repeat for several (default: all)
@@ -368,69 +368,69 @@ prune_nef.sh [-a ACCOUNT] [-c CONTAINER ...] [-p PREFIX] [-D] [-n | -y] [-l] [-I
   -n            dry run: report containers, folders and counts, change nothing
   -y            do not ask; archive (or with -D, delete) right away
   -l            list every blob, not just counts
-  -I, -i, -z, -K  service principal options, as for upload_azure.sh
+  -I, -i, -z, -K  service principal options, as for phototools_upload_azure.sh
   -v            show the Azure CLI commands being run
 ```
 
 ```bash
 # See what would be removed, with file names
-prune_nef.sh -a rpsphotography001 -n -l
+phototools_prune_nef.sh -a rpsphotography001 -n -l
 
 # Archive, after one confirmation
-prune_nef.sh -a rpsphotography001 -c charlevoix
+phototools_prune_nef.sh -a rpsphotography001 -c charlevoix
 
 # Delete one date folder's NEFs permanently, without asking
-prune_nef.sh -a rpsphotography001 -c charlevoix -p 2026/20261017/ -D -y
+phototools_prune_nef.sh -a rpsphotography001 -c charlevoix -p 2026/20261017/ -D -y
 ```
 
 Exit status: `0` done (or nothing to do, or you declined), `2` some blobs could not be pruned, `1` error.
 
 ---
 
-### `cloud/archive_container.sh` — Archive a whole Azure Blob container
+### `cloud/phototools_archive_container.sh` — Archive a whole Azure Blob container
 
 Saves storage cost by moving every blob in one named container to the **Archive** access tier (the cheapest tier, but reading a blob again takes hours and has a 180-day minimum charge). Blobs already in the Archive tier are skipped, as are blobs that cannot be archived (only block blobs can); both are counted in the report. Nothing is deleted.
 
 **Nothing is changed by default.** The tool lists what it found (each folder with its blob count and size, plus totals), then asks once whether to go ahead (it needs a terminal to ask on; without one it stops and changes nothing). Use `-y` to skip the question, or `-n` for a dry run that only reports. Add `-l` to list every blob name.
 
-**Access:** The same sign-in, options, environment variables and secret sources as `upload_azure.sh` and `prune_nef.sh` (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Contributor** role.
+**Access:** The same sign-in, options, environment variables and secret sources as `phototools_upload_azure.sh` and `phototools_prune_nef.sh` (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Contributor** role.
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-archive_container.sh [-a ACCOUNT] -c CONTAINER [-n | -y] [-l] [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
+phototools_archive_container.sh [-a ACCOUNT] -c CONTAINER [-n | -y] [-l] [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
 
   -a ACCOUNT    storage account name (default: $PHOTO_AZ_ACCOUNT)
   -c CONTAINER  the container to archive (required)
   -n            dry run: report folders and counts, change nothing
   -y            do not ask; archive right away
   -l            list every blob, not just counts
-  -I, -i, -z, -K  service principal options, as for upload_azure.sh
+  -I, -i, -z, -K  service principal options, as for phototools_upload_azure.sh
   -v            show the Azure CLI commands being run
 ```
 
 ```bash
 # See what would be archived
-archive_container.sh -a rpsphotography001 -c charlevoix -n
+phototools_archive_container.sh -a rpsphotography001 -c charlevoix -n
 
 # Archive, after one confirmation
-archive_container.sh -a rpsphotography001 -c charlevoix
+phototools_archive_container.sh -a rpsphotography001 -c charlevoix
 ```
 
 Exit status: `0` done (or nothing to do, or you declined), `2` some blobs could not be archived, `1` error.
 
 ---
 
-### `cloud/unarchive_container.sh` — Unarchive a whole Azure Blob container
+### `cloud/phototools_unarchive_container.sh` — Unarchive a whole Azure Blob container
 
-The reverse of `archive_container.sh`: moves every blob in one named container that is in the **Archive** tier back to an online tier, **Hot** by default (use `-t` to choose `Hot`, `Cool` or `Cold`). Azure rehydrates archived blobs in the background, which takes hours (up to 15 hours at standard priority), and a blob stays in the Archive tier until that finishes. Blobs that are not in the Archive tier, blobs already being rehydrated, and blobs that cannot be archived (only block blobs can) are skipped and counted in the report. Nothing is deleted.
+The reverse of `phototools_archive_container.sh`: moves every blob in one named container that is in the **Archive** tier back to an online tier, **Hot** by default (use `-t` to choose `Hot`, `Cool` or `Cold`). Azure rehydrates archived blobs in the background, which takes hours (up to 15 hours at standard priority), and a blob stays in the Archive tier until that finishes. Blobs that are not in the Archive tier, blobs already being rehydrated, and blobs that cannot be archived (only block blobs can) are skipped and counted in the report. Nothing is deleted.
 
 **Nothing is changed by default.** The tool lists what it found (each folder with its blob count and size, plus totals), then asks once whether to go ahead (it needs a terminal to ask on; without one it stops and changes nothing). Use `-y` to skip the question, or `-n` for a dry run that only reports. Add `-l` to list every blob name.
 
-**Access:** The same sign-in, options, environment variables and secret sources as `archive_container.sh` (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Contributor** role.
+**Access:** The same sign-in, options, environment variables and secret sources as `phototools_archive_container.sh` (see [Service principal setup](#service-principal-setup)). The identity needs the **Storage Blob Data Contributor** role.
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-unarchive_container.sh [-a ACCOUNT] -c CONTAINER [-t TIER] [-n | -y] [-l] [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
+phototools_unarchive_container.sh [-a ACCOUNT] -c CONTAINER [-t TIER] [-n | -y] [-l] [-I user|sp] [-i APP_ID] [-z TENANT] [-K PEM] [-v]
 
   -a ACCOUNT    storage account name (default: $PHOTO_AZ_ACCOUNT)
   -c CONTAINER  the container to unarchive (required)
@@ -438,26 +438,26 @@ unarchive_container.sh [-a ACCOUNT] -c CONTAINER [-t TIER] [-n | -y] [-l] [-I us
   -n            dry run: report folders and counts, change nothing
   -y            do not ask; unarchive right away
   -l            list every blob, not just counts
-  -I, -i, -z, -K  service principal options, as for upload_azure.sh
+  -I, -i, -z, -K  service principal options, as for phototools_upload_azure.sh
   -v            show the Azure CLI commands being run
 ```
 
 ```bash
 # See what would be unarchived
-unarchive_container.sh -a rpsphotography001 -c charlevoix -n
+phototools_unarchive_container.sh -a rpsphotography001 -c charlevoix -n
 
 # Move to Hot, after one confirmation
-unarchive_container.sh -a rpsphotography001 -c charlevoix
+phototools_unarchive_container.sh -a rpsphotography001 -c charlevoix
 
 # Move to Cool without asking
-unarchive_container.sh -a rpsphotography001 -c charlevoix -t Cool -y
+phototools_unarchive_container.sh -a rpsphotography001 -c charlevoix -t Cool -y
 ```
 
 Exit status: `0` done (or nothing to do, or you declined), `2` some blobs could not be moved, `1` error.
 
 ---
 
-### `cloud/upload_azure.sh` — Upload photo folders to Azure Blob Storage
+### `cloud/phototools_upload_azure.sh` — Upload photo folders to Azure Blob Storage
 
 Uploads local folders into Azure Blob Storage containers, one container per category (e.g. `charlevoix`, `grand-haven`), using `azcopy`. Uploads can take hours, so files that fail are moved to a retry folder, and a retry run only uploads those files.
 
@@ -479,7 +479,7 @@ Uploads local folders into Azure Blob Storage containers, one container per cate
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
-upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
+phototools_upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
 
   -a ACCOUNT    storage account name, e.g. rpsphotography001 (default: $PHOTO_AZ_ACCOUNT)
   -u C=DIR      upload folder DIR into container C (repeat for each category)
@@ -544,19 +544,19 @@ Being *Owner* of the subscription is not enough for either one: Owner manages th
 **Examples:**
 ```bash
 # Preview: signs in, checks both containers, lists each file and the blob it becomes
-upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -n
+phototools_upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -n
 
 # Upload
-upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven
+phototools_upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven
 
 # Same, but under a 2026/ folder in each container
-upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -p 2026
+phototools_upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -p 2026
 
 # Some files failed: fix the cause, then upload only those
-upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -R
+phototools_upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -R
 
 # Categories kept in a file (one CONTAINER=DIR per line, # comments allowed)
-upload_azure.sh -a rpsphotography001 -m ~/photo-categories.txt
+phototools_upload_azure.sh -a rpsphotography001 -m ~/photo-categories.txt
 ```
 
 **Creating missing containers (`-c`):** when a container does not exist in the storage account, `-c` decides what happens:
@@ -568,7 +568,7 @@ With `-n` nothing is created and nothing is asked; the output says which contain
 
 ```bash
 # Create the container grand-haven if it is missing, without asking
-upload_azure.sh -a rpsphotography001 -u grand-haven=~/Export/grand-haven -c yes
+phototools_upload_azure.sh -a rpsphotography001 -u grand-haven=~/Export/grand-haven -c yes
 ```
 
 **Retry folder layout** (default: inside each source folder; links are hidden from normal uploads):
@@ -631,7 +631,7 @@ A service principal lets the upload run under its own identity instead of yours,
    export PHOTO_AZ_TENANT_ID=<tenant>
    export PHOTO_AZ_CERT_PATH=~/.photo-tools/photo-tools-uploader.pem   # if using a certificate
    ```
-   Then `upload_azure.sh -u grand-haven=~/Export/grand-haven` signs in as the service principal. Command-line options override these variables.
+   Then `phototools_upload_azure.sh -u grand-haven=~/Export/grand-haven` signs in as the service principal. Command-line options override these variables.
 5. **Renew before it expires** — secrets and certificates expire (one year by default). When sign-in fails because of that, the script says so. Renew with `az ad sp credential reset --id <appId> [--create-cert]`.
 
 **Every setting and where it comes from** (an option beats a `PHOTO_*` variable, which beats the standard `AZURE_*` variable):
@@ -683,31 +683,31 @@ If both a certificate and a secret are set, the certificate is used.
 
 ### Prerequisites
 
-| Tool                | Needed by                          | Installed by `tools/prereqs.sh` with     |
+| Tool                | Needed by                          | Installed by `tools/phototools_prereqs.sh` with     |
 |---------------------|------------------------------------|------------------------------------------|
 | Homebrew            | installing the tools below         | — (install it yourself from https://brew.sh) |
-| exiftool            | `import_photos.sh`, `rename_nef.sh` | `brew install exiftool`                  |
-| Adobe DNG Converter | `import_photos.sh`                 | `brew install --cask adobe-dng-converter` (macOS 14+) |
-| Azure CLI           | `upload_azure.sh`                  | `brew install azure-cli`                 |
-| azcopy              | `upload_azure.sh`                  | `brew install azcopy`                    |
-| jq                  | `upload_azure.sh`                  | included with macOS 15+, else `brew install jq` |
-| Python 3            | `report_azure.sh`, `prune_nef.sh`, `archive_container.sh`, `unarchive_container.sh` | `brew install python`                    |
+| exiftool            | `phototools_import_photos.sh`, `phototools_rename_nef.sh` | `brew install exiftool`                  |
+| Adobe DNG Converter | `phototools_import_photos.sh`                 | `brew install --cask adobe-dng-converter` (macOS 14+) |
+| Azure CLI           | `phototools_upload_azure.sh`                  | `brew install azure-cli`                 |
+| azcopy              | `phototools_upload_azure.sh`                  | `brew install azcopy`                    |
+| jq                  | `phototools_upload_azure.sh`                  | included with macOS 15+, else `brew install jq` |
+| Python 3            | `phototools_report_azure.sh`, `phototools_prune_nef.sh`, `phototools_archive_container.sh`, `phototools_unarchive_container.sh` | `brew install python`                    |
 
-`install/install.sh` requires `cloud/upload_azure.sh`, checks and installs missing prerequisites first, then copies the tool scripts. Azure CLI, azcopy, and jq are required to run `upload_azure.sh`; Azure CLI and Python 3 are required for `report_azure.sh`, `prune_nef.sh`, `archive_container.sh` and `unarchive_container.sh`. To check or install prerequisites on their own:
+`install/install.sh` requires `cloud/phototools_upload_azure.sh`, checks and installs missing prerequisites first, then copies the tool scripts. Azure CLI, azcopy, and jq are required to run `phototools_upload_azure.sh`; Azure CLI and Python 3 are required for `phototools_report_azure.sh`, `phototools_prune_nef.sh`, `phototools_archive_container.sh` and `phototools_unarchive_container.sh`. To check or install prerequisites on their own:
 
 ```bash
-tools/prereqs.sh -n        # check only: report what's missing
-tools/prereqs.sh           # install anything missing
-tools/update.sh             # install missing prerequisites and update Homebrew-managed dependencies
+tools/phototools_prereqs.sh -n        # check only: report what's missing
+tools/phototools_prereqs.sh           # install anything missing
+tools/phototools_update.sh             # install missing prerequisites and update Homebrew-managed dependencies
 ```
 
 Add `-v` to `prereqs.sh`, `update.sh` or `install.sh` for verbose output (how each tool is looked up and which commands are run).
 
-- `tools/update.sh` upgrades only dependencies managed by Homebrew; macOS-provided `jq` and manually installed DNG Converter copies are left unchanged. After installation, run `update.sh` from your `PATH`.
+- `tools/phototools_update.sh` upgrades only dependencies managed by Homebrew; macOS-provided `jq` and manually installed DNG Converter copies are left unchanged. After installation, run `update.sh` from your `PATH`.
 - Adobe's DNG Converter installer asks for your password.
 - If exiftool is installed but not on your `PATH`, the script says so and shows the line to add to `~/.zprofile`.
-- If DNG Converter lives somewhere other than `/Applications`, set `DNG_CONVERTER` to its path; both `tools/prereqs.sh` and `import_photos.sh` use it.
-- Without DNG Converter, `import_photos.sh -k` still works (it copies and renames but makes no DNGs).
+- If DNG Converter lives somewhere other than `/Applications`, set `DNG_CONVERTER` to its path; both `tools/phototools_prereqs.sh` and `phototools_import_photos.sh` use it.
+- Without DNG Converter, `phototools_import_photos.sh -k` still works (it copies and renames but makes no DNGs).
 
 ### Install to `/usr/local/bin`
 
@@ -720,7 +720,7 @@ install/install.sh -v      # install, showing each step (verbose)
 ```
 
 The installer:
-- runs `tools/prereqs.sh` to install any missing prerequisites, and stops if one can't be installed;
+- runs `tools/phototools_prereqs.sh` to install any missing prerequisites, and stops if one can't be installed;
 - copies every tool script, including `prereqs.sh` and `update.sh`, into `/usr/local/bin`, creating it if needed;
 - sets each script to mode `755` (`rwxr-xr-x`): every user can run it, only the owner can change it;
 - uses `sudo` only if `/usr/local/bin` isn't writable by you, and asks for your password in that case.
@@ -729,15 +729,15 @@ Re-run it after pulling updates; installed copies are replaced. Until you do, `/
 
 ### Installing to another path
 
-Use `-d DIR` to install somewhere other than `/usr/local/bin`, e.g. `install/install.sh -d ~/bin`. The tools then run from that folder instead. Make sure it is on your `PATH`; the installer warns if it isn't. Install all scripts to the same folder, since `import_photos.sh` needs `rename_nef.sh` next to it.
+Use `-d DIR` to install somewhere other than `/usr/local/bin`, e.g. `install/install.sh -d ~/bin`. The tools then run from that folder instead. Make sure it is on your `PATH`; the installer warns if it isn't. Install all scripts to the same folder, since `phototools_import_photos.sh` needs `phototools_rename_nef.sh` next to it.
 
 ### Running from the repository (development)
 
 For testing changes before installing them, run the scripts directly from the repository:
 
 ```bash
-bash workflow/import_photos.sh -e "My Event"
-bash workflow/rename_nef.sh ~/Pictures/some-folder
+bash workflow/phototools_import_photos.sh -e "My Event"
+bash workflow/phototools_rename_nef.sh ~/Pictures/some-folder
 ```
 
 Both scripts work with the stock macOS bash 3.2.

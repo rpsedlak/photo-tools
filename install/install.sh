@@ -46,7 +46,7 @@ shift $((OPTIND - 1))
 [ -n "$DEST" ] || die "destination is empty."
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-[ -f "$REPO/cloud/upload_azure.sh" ] || die "required script cloud/upload_azure.sh not found."
+[ -f "$REPO/cloud/phototools_upload_azure.sh" ] || die "required script cloud/phototools_upload_azure.sh not found."
 
 # Tool scripts live one level down: <repo>/<tool-dir>/<script>.sh
 SCRIPTS=()
@@ -65,13 +65,13 @@ $dupes"
 
 echo "Checking prerequisites..."
 PREREQ_OPTS=""; [ "$DRY_RUN" -eq 0 ] || PREREQ_OPTS="-n"; [ "$VERBOSE" -eq 0 ] || PREREQ_OPTS="$PREREQ_OPTS -v"
-vlog "running: bash $REPO/tools/prereqs.sh$([ -z "$PREREQ_OPTS" ] || echo " $PREREQ_OPTS")"
+vlog "running: bash $REPO/tools/phototools_prereqs.sh$([ -z "$PREREQ_OPTS" ] || echo " $PREREQ_OPTS")"
 if [ "$DRY_RUN" -eq 1 ]; then
     # shellcheck disable=SC2086
-    bash "$REPO/tools/prereqs.sh" $PREREQ_OPTS
+    bash "$REPO/tools/phototools_prereqs.sh" $PREREQ_OPTS
 else
     # shellcheck disable=SC2086
-    bash "$REPO/tools/prereqs.sh" $PREREQ_OPTS || die "prerequisites are not ready (see above). Fix them and re-run."
+    bash "$REPO/tools/phototools_prereqs.sh" $PREREQ_OPTS || die "prerequisites are not ready (see above). Fix them and re-run."
 fi
 echo ""
 
