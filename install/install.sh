@@ -79,7 +79,7 @@ echo ""
 # Need sudo if the destination (or, if missing, its nearest existing parent) isn't writable.
 SUDO=""
 p="$DEST"; while [ ! -d "$p" ]; do p=$(dirname "$p"); done
-[ -w "$p" ] || SUDO="sudo -A"
+[ -w "$p" ] || SUDO="sudo"
 if [ -n "$SUDO" ]; then vlog "$p is not writable by you; using sudo"; else vlog "$p is writable; not using sudo"; fi
 
 if [ -n "$SUDO" ] && [ "$DRY_RUN" -eq 0 ]; then
