@@ -836,7 +836,7 @@ function Invoke-DateStep {  # rename, drop duplicates, convert, write copyright,
         Clear-Status
         if ($toConvert.Count -gt 0) { Write-Line "          converted in $(Format-Hms ((Get-ElapsedSec) - $t0))" }
 
-        $validDngs = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+        $validDngs = New-Object 'System.Collections.Generic.HashSet[string]' $nameComparer
         foreach ($f in $nefs) {
             $stem = [IO.Path]::GetFileNameWithoutExtension($f)
             foreach ($c in @((Join-Path $din "$stem.dng"), (Join-Path $din "$stem.DNG"))) {
