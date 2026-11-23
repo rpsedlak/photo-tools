@@ -195,4 +195,5 @@ if ($DryRun) {
     Write-Output "Renamed: $renamed   Skipped: $skipped   Failed: $failed"
     if ($failed -gt 0) { exit 2 }
 }
+if ($failed -gt 0) { exit 1 }
 exit 0
