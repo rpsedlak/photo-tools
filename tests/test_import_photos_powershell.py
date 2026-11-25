@@ -101,12 +101,17 @@ $restored = Restore-FiledPhoto $env:FILED_PATH $env:SOURCE_PATH
 function Invoke-ExifTool {
     param([string[]]$ToolArgs, [string[]]$CommonArgs)
     $script:ExifExit = 0
-    if ($ToolArgs -contains '-Validate') { $env:DNG_VALIDATION }
+    if ($ToolArgs -contains '-validate') {
+        $env:DNG_VALIDATION
+        if ($ToolArgs -ccontains '-Validate') { $env:DNG_VALIDATION }
+    }
     else { $env:DNG_VERSION }
 }
 $valid = Test-DngOutput $env:DNG_PATH
+$env:DNG_VALIDATION = '2 Warnings (all minor)'
+$minor = Test-DngOutput $env:DNG_PATH
 $empty = Test-DngOutput $env:EMPTY_DNG_PATH
-@($valid, $empty) | ConvertTo-Json -Compress
+@($valid, $minor, $empty) | ConvertTo-Json -Compress
 """,
                 {
                     "DNG_PATH": str(path),
@@ -117,7 +122,7 @@ $empty = Test-DngOutput $env:EMPTY_DNG_PATH
             )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), [True, False])
+        self.assertEqual(json.loads(result.stdout), [True, True, False])
 
     def test_dng_output_with_validation_errors_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -129,16 +134,19 @@ $empty = Test-DngOutput $env:EMPTY_DNG_PATH
 function Invoke-ExifTool {
     param([string[]]$ToolArgs, [string[]]$CommonArgs)
     $script:ExifExit = 0
-    if ($ToolArgs -contains '-Validate') { '1 error' }
+    if ($ToolArgs -contains '-validate') { $env:DNG_VALIDATION }
     else { '1.4.0.0' }
 }
-Test-DngOutput $env:DNG_PATH
+$errorResult = Test-DngOutput $env:DNG_PATH
+$env:DNG_VALIDATION = '1 Warning'
+$warningResult = Test-DngOutput $env:DNG_PATH
+@($errorResult, $warningResult) | ConvertTo-Json -Compress
 """,
-                {"DNG_PATH": str(path)},
+                {"DNG_PATH": str(path), "DNG_VALIDATION": "1 Error"},
             )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "False")
+        self.assertEqual(json.loads(result.stdout), [False, False])
 
 
 if __name__ == "__main__":

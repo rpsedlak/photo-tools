@@ -698,8 +698,9 @@ function Test-DngOutput {
     try {
         if ((New-Object IO.FileInfo $Path).Length -eq 0) { return $false }
     } catch { return $false }
-    $validation = @(Invoke-ExifTool @('-validate', '-s3', '-Validate', $Path))
-    if ($script:ExifExit -ne 0 -or $validation.Count -ne 1 -or $validation[0] -ne 'OK') { return $false }
+    $validation = @(Invoke-ExifTool @('-validate', '-s3', $Path))
+    if ($script:ExifExit -ne 0 -or $validation.Count -ne 1 -or
+        ($validation[0] -ne 'OK' -and $validation[0] -notmatch '^\d+ Warnings? \(all minor\)$')) { return $false }
     $version = @(Invoke-ExifTool @('-s3', '-DNGVersion', $Path))
     return ($script:ExifExit -eq 0 -and $version.Count -eq 1 -and -not [string]::IsNullOrWhiteSpace($version[0]))
 }
