@@ -99,7 +99,9 @@ function Invoke-ExifTool {
             $oldEncoding = [Console]::OutputEncoding
             [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
         } catch { $oldEncoding = $null }
-        & exiftool -charset UTF8 -@ $argFile 2>$null
+        $output = & exiftool -charset UTF8 -@ $argFile 2>$null
+        if ($LASTEXITCODE -ne 0) { Stop-Script 'exiftool failed while reading capture dates.' }
+        $output
     } finally {
         if ($oldEncoding) { try { [Console]::OutputEncoding = $oldEncoding } catch { Write-Verbose 'could not restore console encoding' } }
         Remove-Item -LiteralPath $argFile -Force -ErrorAction SilentlyContinue
