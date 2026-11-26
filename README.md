@@ -2,7 +2,7 @@
 
 A collection of photo management tools, grouped into directories by purpose.
 
-Some tools also have PowerShell versions for Windows 11; see [Windows 11 (PowerShell)](#windows-11-powershell) for the available scripts and their options.
+Every tool also has a PowerShell version for Windows 11; see [Windows 11 (PowerShell)](#windows-11-powershell) for the available scripts and their options.
 
 > **Production location:** In normal use the tools are installed with `install/install.sh` and run from **`/usr/local/bin`**, by name (e.g. `phototools_import_photos.sh -e "My Event"`). The exception is when they were installed somewhere else with `install/install.sh -d DIR`; then they run from that folder. This repository is the source; the `workflow/...` paths below show where each script lives in the repo, not where it runs from.
 
@@ -11,7 +11,7 @@ Some tools also have PowerShell versions for Windows 11; see [Windows 11 (PowerS
 |Platform|Version|Testing Notes|
 |---|---|---|
 |Mac OS X|Golden Gate 27.2.1|Command-line version running ZSH|
-|Microsoft Windows|Microsoft Windows 11 Pro|PowerShell version 7. Not all commands are supported.|
+|Microsoft Windows|Microsoft Windows 11 Pro|PowerShell version 7. Every tool has a PowerShell version.|
 
 ## Repository layout
 
@@ -21,21 +21,27 @@ photo-tools/
 ├── install/
 │   ├── install.sh            # installs prerequisites, then copies every tool script into /usr/local/bin
 │   ├── uninstall.sh          # removes installed tools and Stream Deck launchers
-│   └── install.ps1           # Windows installer
+│   ├── install.ps1           # Windows installer
+│   └── uninstall.ps1         # Windows uninstaller
 ├── stream-deck/              # .command launchers for Stream Deck
 ├── workflow/                 # post-shoot workflow: SD card import and file organization
 │   ├── phototools_import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
 │   ├── phototools_import_photos.ps1      # Windows version
 │   ├── phototools_rename_nef.sh         # rename NEFs/JPGs to capture time (used by phototools_import_photos.sh)
 │   ├── phototools_rename_nef.ps1         # Windows version
-│   └── phototools_rename_dng.sh         # rename DNGs by capture date, event and serial
+│   ├── phototools_rename_dng.sh         # rename DNGs by capture date, event and serial
+│   └── phototools_rename_dng.ps1         # Windows version
 ├── cloud/                    # cloud backup and sharing
 │   ├── phototools_upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
 │   ├── phototools_upload_azure.ps1      # Windows version
 │   ├── phototools_report_azure.sh       # read-only Azure Blob account statistics and Excel reports
+│   ├── phototools_report_azure.ps1      # Windows version
 │   ├── phototools_prune_nef.sh          # archive (or delete) NEF.zip files and NEFs in Azure Blob Storage
+│   ├── phototools_prune_nef.ps1         # Windows version
 │   ├── phototools_archive_container.sh  # move a whole named Azure Blob container to the Archive tier
-│   └── phototools_unarchive_container.sh # move an archived Azure Blob container back to Hot (or Cool/Cold)
+│   ├── phototools_archive_container.ps1 # Windows version
+│   ├── phototools_unarchive_container.sh # move an archived Azure Blob container back to Hot (or Cool/Cold)
+│   └── phototools_unarchive_container.ps1 # Windows version
 └── tools/                    # dependency management
   ├── phototools_prereqs.sh            # checks for / installs required tools (via Homebrew)
   ├── phototools_prereqs.ps1           # Windows: via winget
@@ -73,20 +79,20 @@ date-event-serial names.
 
 ```mermaid
 flowchart TD
-    A[SD card 1] --> B[phototools_import_photos.sh]
+    A[SD card 1] --> B["phototools_import_photos.sh (ZSH)<br/>phototools_import_photos.ps1 (PowerShell)"]
     C[Additional SD cards] --> B
     B --> D[Copy and organize files; rename NEFs/JPGs automatically]
     D --> E[Convert NEFs to DNG]
     E --> F[Repeat import for every card for this event]
     F --> G[All cards imported?]
     G -- No --> B
-    G -- Yes --> H[phototools_rename_dng.sh once for each date DNG folder]
+    G -- Yes --> H["phototools_rename_dng.sh (ZSH)<br/>phototools_rename_dng.ps1 (PowerShell)<br/>once for each date DNG folder"]
     H --> I[Process photos in Lightroom or similar]
     I --> J[Select the complete event/date directory]
-    J --> K[phototools_upload_azure.sh]
+    J --> K["phototools_upload_azure.sh (ZSH)<br/>phototools_upload_azure.ps1 (PowerShell)"]
     K --> L[Azure Blob Storage]
     K --> M{Any upload failures?}
-    M -- Yes --> N[Correct issue and retry with -R]
+    M -- Yes --> N["Correct issue and retry<br/>with -R (ZSH) or -RetryMode (PowerShell)"]
     N --> K
     M -- No --> O[Workflow complete]
 ```
@@ -143,6 +149,17 @@ flowchart TD
    phototools_upload_azure.sh -a ACCOUNT -u detroit-riverwalk="$PHOTO_IMPORT_DEST/20261017" -R
    ```
    Repeat until the upload completes without failures.
+
+**On Windows 11,** run the PowerShell equivalents of the same steps (see [Windows 11 (PowerShell)](#windows-11-powershell)):
+```powershell
+$env:PHOTO_IMPORT_DEST = "D:\photos-01"
+phototools_import_photos.ps1 -EventName "Detroit Riverwalk" -DryRun
+phototools_import_photos.ps1 -EventName "Detroit Riverwalk" -Eject
+phototools_rename_dng.ps1 -DryRun -EventName "Detroit Riverwalk" "$env:PHOTO_IMPORT_DEST\20261017\DNG"
+phototools_rename_dng.ps1 -EventName "Detroit Riverwalk" "$env:PHOTO_IMPORT_DEST\20261017\DNG"
+phototools_upload_azure.ps1 -Account ACCOUNT -Upload detroit-riverwalk="$env:PHOTO_IMPORT_DEST\20261017"
+phototools_upload_azure.ps1 -Account ACCOUNT -Upload detroit-riverwalk="$env:PHOTO_IMPORT_DEST\20261017" -RetryMode
+```
 
 See the individual tool sections below for all options, naming behavior,
 prerequisites, and Azure authentication details.
@@ -770,16 +787,22 @@ Both scripts work with the stock macOS bash 3.2.
 
 ## Windows 11 (PowerShell)
 
-The `.ps1` scripts below are Windows PowerShell versions of the earlier bash tools. They have not yet been updated for all subsequent changes to the macOS versions. Windows versions of DNG renaming, Azure reporting, pruning, archiving, unarchiving, and uninstalling are not yet available. They target Windows PowerShell 5.1 and PowerShell 7+.
+The `.ps1` scripts below are Windows PowerShell versions of the bash tools; every tool has one. They target Windows PowerShell 5.1 and PowerShell 7+.
 
 | macOS script                | Windows script               |
 |-----------------------------|------------------------------|
 | `install/install.sh`        | `install/install.ps1`        |
+| `install/uninstall.sh`      | `install/uninstall.ps1`      |
 | `tools/phototools_prereqs.sh`          | `tools/phototools_prereqs.ps1`          |
 | `tools/phototools_update.sh`           | `tools/phototools_update.ps1`           |
 | `workflow/phototools_import_photos.sh` | `workflow/phototools_import_photos.ps1` |
 | `workflow/phototools_rename_nef.sh`    | `workflow/phototools_rename_nef.ps1`    |
+| `workflow/phototools_rename_dng.sh`    | `workflow/phototools_rename_dng.ps1`    |
 | `cloud/phototools_upload_azure.sh`     | `cloud/phototools_upload_azure.ps1`     |
+| `cloud/phototools_report_azure.sh`     | `cloud/phototools_report_azure.ps1`     |
+| `cloud/phototools_prune_nef.sh`        | `cloud/phototools_prune_nef.ps1`        |
+| `cloud/phototools_archive_container.sh` | `cloud/phototools_archive_container.ps1` |
+| `cloud/phototools_unarchive_container.sh` | `cloud/phototools_unarchive_container.ps1` |
 
 PowerShell parameter names are not case-sensitive, so the one-letter bash flags (`-v` and `-V`, `-r` and `-R`, …) can't be reused. The PowerShell scripts take full names instead, e.g. `-EventName`, `-DryRun`. Every script has built-in help: `Get-Help phototools_import_photos.ps1 -Full`.
 
@@ -788,12 +811,12 @@ PowerShell parameter names are not case-sensitive, so the one-letter bash flags 
 | Tool                | Needed by                              | Installed by `tools\phototools_prereqs.ps1` with                     |
 |---------------------|----------------------------------------|-----------------------------------------------------------|
 | winget              | installing the tools below             | — (included with Windows 11; otherwise install *App Installer* from the Microsoft Store) |
-| exiftool            | `phototools_import_photos.ps1`, `phototools_rename_nef.ps1`  | `winget install OliverBetz.ExifTool`                      |
+| exiftool            | `phototools_import_photos.ps1`, `phototools_rename_nef.ps1`, `phototools_rename_dng.ps1`  | `winget install OliverBetz.ExifTool`                      |
 | Adobe DNG Converter | `phototools_import_photos.ps1`                    | `winget install Adobe.DNGConverter`                       |
-| Azure CLI           | `phototools_upload_azure.ps1`                     | `winget install Microsoft.AzureCLI`                       |
+| Azure CLI           | `phototools_upload_azure.ps1`, `phototools_report_azure.ps1`, `phototools_prune_nef.ps1`, `phototools_archive_container.ps1`, `phototools_unarchive_container.ps1` | `winget install Microsoft.AzureCLI` |
 | azcopy              | `phototools_upload_azure.ps1`                     | `winget install Microsoft.Azure.AZCopy.10`                |
 
-There is no `jq` or `zip`/`unzip` requirement on Windows: PowerShell reads JSON itself, and NEF folders are zipped with .NET.
+There is no `jq`, `zip`/`unzip` or Python requirement on Windows: PowerShell reads JSON itself, and NEF folders and Excel workbooks are zipped with .NET.
 
 ```powershell
 tools\phototools_prereqs.ps1 -CheckOnly   # check only: report what's missing
@@ -835,6 +858,15 @@ The installer:
 Use `-Destination DIR` to install somewhere else. Install all scripts to the same folder, since `phototools_import_photos.ps1` needs `phototools_rename_nef.ps1` next to it. Re-run the installer after pulling updates; installed copies are replaced.
 
 To run a script straight from the repository without installing it, call it by path, e.g. `.\workflow\phototools_rename_nef.ps1 D:\Photos\20261017\NEF`.
+
+### Uninstall (Windows)
+
+```powershell
+install\uninstall.ps1 -DryRun   # preview what would be removed
+install\uninstall.ps1           # remove the installed scripts
+```
+
+`install\uninstall.ps1` removes every photo-tools script from `%LOCALAPPDATA%\photo-tools\bin` (use `-Destination DIR` if you installed somewhere else; `-VerboseLog` shows each decision). Other files in that folder are left alone. When the folder is left empty it is deleted and removed from your user `PATH` (`-KeepPath` leaves the `PATH` alone). Prerequisites are not removed.
 
 ### Settings (Windows)
 
@@ -910,6 +942,118 @@ phototools_rename_nef.ps1 [-DryRun] [-Recurse] [-Extension EXT] DIRECTORY
 ```
 
 Same naming rules as `phototools_rename_nef.sh`: `DSC_0143.NEF` becomes `2026101720184537.NEF`, `_1`, `_2`, … are added on clashes, `.xmp` sidecars are renamed with their photo, and files without a capture time are skipped.
+
+### `phototools_rename_dng.ps1` — Rename DNG files by date, event, and serial
+
+Same naming rules as [`phototools_rename_dng.sh`](#workflowphototools_rename_dngsh--rename-dng-files-by-date-event-and-serial): `IMG_1234.dng` becomes `20261017-detroit-riverwalk-00008.dng`, the date comes from EXIF `DateTimeOriginal` (falling back to the file modification date), and serials continue after the highest existing number for the same date and event. `.xmp` sidecars are renamed with their photo.
+
+```powershell
+phototools_rename_dng.ps1 [-DryRun] [-Recurse] [-VerboseLog] -EventName EVENT DIRECTORY
+  -EventName   event name, e.g. "Detroit Riverwalk"                (bash: -e)
+  -DryRun      show what would be renamed, change nothing          (bash: -n)
+               (with more than 500 files it warns that this can take several
+               minutes and asks whether to continue)
+  -Recurse     recurse into subdirectories                         (bash: -r)
+  -VerboseLog  show where each file's date came from and why files are skipped   (bash: -v)
+```
+
+```powershell
+phototools_rename_dng.ps1 -DryRun -EventName "Detroit Riverwalk" D:\photos-01\20261017\DNG
+phototools_rename_dng.ps1 -EventName "Detroit Riverwalk" D:\photos-01\20261017\DNG
+```
+
+### Azure scripts: sign-in options (Windows)
+
+`phototools_report_azure.ps1`, `phototools_prune_nef.ps1`, `phototools_archive_container.ps1` and `phototools_unarchive_container.ps1` sign in like [`phototools_upload_azure.ps1`](#phototools_upload_azureps1--upload-photo-folders-to-azure-blob-storage) and share these options. They need the Azure CLI (`az`); no Python is needed.
+
+| macOS option   | Windows parameter                       | Environment variable                              |
+|----------------|-----------------------------------------|---------------------------------------------------|
+| `-a ACCOUNT`   | `-Account`                              | `PHOTO_AZ_ACCOUNT`                                |
+| `-I user\|sp`  | `-Identity user\|sp`                    | `PHOTO_AZ_AUTH`                                   |
+| `-i APP_ID`    | `-ClientId`                             | `PHOTO_AZ_CLIENT_ID`, `AZURE_CLIENT_ID`           |
+| `-z TENANT`    | `-TenantId`                             | `PHOTO_AZ_TENANT_ID`, `AZURE_TENANT_ID`           |
+| `-K PEM`       | `-CertificatePath`                      | `PHOTO_AZ_CERT_PATH`, `AZURE_CLIENT_CERTIFICATE_PATH` |
+| `-v`           | `-VerboseLog`                           |                                                   |
+
+A service principal client secret comes from `PHOTO_AZ_CLIENT_SECRET`, `AZURE_CLIENT_SECRET`, or a SecretManagement secret named `photo-tools-azure-<appId>` (change the prefix with `PHOTO_AZ_SECRET_NAME`); it cannot be passed on the command line. A service principal signs in with a temporary Azure CLI profile, leaving your own `az login` unchanged. Exit codes are the same as on the Mac (`0`, `1`, `2`).
+
+### `phototools_report_azure.ps1` — Report Azure Blob Storage usage
+
+Same report as [`phototools_report_azure.sh`](#cloudphototools_report_azuresh--report-azure-blob-storage-usage): blob counts and total sizes (GB) for every container, read-only. With `-Detail FILE` it writes an Excel workbook (`.xlsx`, created without Excel) with a **Summary** tab and one tab per container. The identity needs the **Storage Blob Data Reader** role at storage-account scope.
+
+```powershell
+phototools_report_azure.ps1 [-Account ACCOUNT] [-Summary | -Detail FILE.xlsx] [-VerboseLog]
+  -Summary   print a summary (default)                                      (bash: -s)
+  -Detail    write an Excel workbook with a summary and one tab per container   (bash: -d)
+```
+
+```powershell
+# Print per-container and account-wide totals
+phototools_report_azure.ps1 -Account rpsphotography001
+
+# Save a workbook (the output directory must already exist)
+phototools_report_azure.ps1 -Account rpsphotography001 -Detail $HOME\Desktop\storage-report.xlsx
+```
+
+### `phototools_prune_nef.ps1` — Archive or delete unneeded NEFs in Azure Blob Storage
+
+Same rules and report as [`phototools_prune_nef.sh`](#cloudphototools_prune_nefsh--archive-or-delete-unneeded-nefs-in-azure-blob-storage). Nothing is changed by default: it lists what it found and asks once (it needs a console to ask on; without one use `-Yes`). Pruned blobs are moved to the Archive tier, or deleted permanently with `-Delete`. The identity needs the **Storage Blob Data Contributor** role.
+
+```powershell
+phototools_prune_nef.ps1 [-Account ACCOUNT] [-Container C[,C2 ...]] [-Prefix PREFIX] [-Delete] [-DryRun | -Yes] [-List]
+  -Container   only these containers (default: all)                         (bash: -c, repeated)
+  -Prefix      only blobs whose name starts with PREFIX                     (bash: -p)
+  -Delete      delete permanently instead of archiving                      (bash: -D)
+  -DryRun      report containers, folders and counts, change nothing        (bash: -n)
+  -Yes         do not ask; archive (or with -Delete, delete) right away     (bash: -y)
+  -List        list every blob, not just counts                             (bash: -l)
+```
+
+```powershell
+# See what would be removed, with file names
+phototools_prune_nef.ps1 -Account rpsphotography001 -DryRun -List
+
+# Archive, after one confirmation
+phototools_prune_nef.ps1 -Account rpsphotography001 -Container charlevoix
+
+# Delete one date folder's NEFs permanently, without asking
+phototools_prune_nef.ps1 -Account rpsphotography001 -Container charlevoix -Prefix 2026/20261017/ -Delete -Yes
+```
+
+### `phototools_archive_container.ps1` — Archive a whole Azure Blob container
+
+Same behavior as [`phototools_archive_container.sh`](#cloudphototools_archive_containersh--archive-a-whole-azure-blob-container): moves every block blob in one container to the Archive tier after one confirmation. The identity needs the **Storage Blob Data Contributor** role.
+
+```powershell
+phototools_archive_container.ps1 [-Account ACCOUNT] -Container CONTAINER [-DryRun | -Yes] [-List]
+  -Container   the container to archive (required)               (bash: -c)
+  -DryRun      report folders and counts, change nothing         (bash: -n)
+  -Yes         do not ask; archive right away                    (bash: -y)
+  -List        list every blob, not just counts                  (bash: -l)
+```
+
+```powershell
+phototools_archive_container.ps1 -Account rpsphotography001 -Container charlevoix -DryRun
+phototools_archive_container.ps1 -Account rpsphotography001 -Container charlevoix
+```
+
+### `phototools_unarchive_container.ps1` — Unarchive a whole Azure Blob container
+
+Same behavior as [`phototools_unarchive_container.sh`](#cloudphototools_unarchive_containersh--unarchive-a-whole-azure-blob-container): moves every archived blob in one container to Hot (or Cool/Cold) after one confirmation; Azure rehydrates them in the background over several hours. The identity needs the **Storage Blob Data Contributor** role.
+
+```powershell
+phototools_unarchive_container.ps1 [-Account ACCOUNT] -Container CONTAINER [-Tier TIER] [-DryRun | -Yes] [-List]
+  -Container   the container to unarchive (required)             (bash: -c)
+  -Tier        Hot, Cool or Cold (default: Hot)                  (bash: -t)
+  -DryRun      report folders and counts, change nothing         (bash: -n)
+  -Yes         do not ask; unarchive right away                  (bash: -y)
+  -List        list every blob, not just counts                  (bash: -l)
+```
+
+```powershell
+phototools_unarchive_container.ps1 -Account rpsphotography001 -Container charlevoix -DryRun
+phototools_unarchive_container.ps1 -Account rpsphotography001 -Container charlevoix -Tier Cool -Yes
+```
 
 ### `phototools_upload_azure.ps1` — Upload photo folders to Azure Blob Storage
 
