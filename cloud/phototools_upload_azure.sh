@@ -27,7 +27,7 @@
 #
 #   -a ACCOUNT    name of the Azure storage account that holds the containers:
 #                 the first part of https://ACCOUNT.blob.core.windows.net,
-#                 3-24 lowercase letters/digits, e.g. rpsphotography001; not
+#                 3-24 lowercase letters/digits, e.g. storageaccount; not
 #                 a URL, resource group or container (default: $PHOTO_AZ_ACCOUNT).
 #                 List yours with: az storage account list --query '[].name' -o tsv
 #   -u C=DIR      upload folder DIR into container C (repeat for each category)
@@ -80,7 +80,7 @@
 #                 level. Also saved to debug.log in the run folder (except -n).
 #
 # Environment:
-#   PHOTO_AZ_ACCOUNT        storage account name, e.g. rpsphotography001 (same as -a)
+#   PHOTO_AZ_ACCOUNT        storage account name, e.g. storageaccount (same as -a)
 #   PHOTO_AZ_AUTH           user (your az login) or sp (service principal) (same as -I)
 #   PHOTO_AZ_CLIENT_ID      service principal app ID (same as -i; falls back to AZURE_CLIENT_ID)
 #   PHOTO_AZ_TENANT_ID      tenant ID (same as -z; falls back to AZURE_TENANT_ID)
