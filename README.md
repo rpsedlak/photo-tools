@@ -8,7 +8,7 @@ Every tool also has a PowerShell version for Windows 11; see [Windows 11 (PowerS
 
 ## Supported Platforms
 
-|Platform|Version|Testing Notes|
+|Platform|Tested Version|Testing Notes|
 |---|---|---|
 |Mac OS X|Golden Gate 27.2.1|Command-line version running ZSH|
 |Microsoft Windows|Microsoft Windows 11 Pro|PowerShell version 7. Every tool has a PowerShell version.|
@@ -102,18 +102,18 @@ flowchart TD
 1. **Prepare the archive destination.** Connect the destination disk and set it
    for this shell, or pass it with `-d` on each import command:
    ```bash
-   export PHOTO_IMPORT_DEST="/Volumes/photos-01"
+   export PHOTO_IMPORT_DEST="/Volumes/photos"
    ```
 2. **Import every SD card for the event.** Use the same event name and
    destination for each card. Preview and then import the first card:
    ```bash
-   phototools_import_photos.sh -e "Detroit Riverwalk" -n
-   phototools_import_photos.sh -e "Detroit Riverwalk" -x
+   phototools_import_photos.sh -e "My Event" -n
+   phototools_import_photos.sh -e "My Event" -x
    ```
    For another card from the same event, identify its mount point with `-s` and
    run the import again:
    ```bash
-   phototools_import_photos.sh -e "Detroit Riverwalk" -s /Volumes/BACKUP -x
+   phototools_import_photos.sh -e "My Event" -s /Volumes/BACKUP -x
    ```
    Repeat until all cards for the event have been imported. Importing cards
    separately lets the DNG serials continue from existing files and uses the
@@ -123,8 +123,8 @@ flowchart TD
    `YYYYMMDD-event-NNNNN.dng`; the serial continues after the highest existing
    number for that date and event.
    ```bash
-   phototools_rename_dng.sh -n -e "Detroit Riverwalk" "$PHOTO_IMPORT_DEST/20261017/DNG"
-   phototools_rename_dng.sh -e "Detroit Riverwalk" "$PHOTO_IMPORT_DEST/20261017/DNG"
+   phototools_rename_dng.sh -n -e "My Event" "$PHOTO_IMPORT_DEST/20261017/DNG"
+   phototools_rename_dng.sh -e "My Event" "$PHOTO_IMPORT_DEST/20261017/DNG"
    ```
    Repeat for each date's `DNG/` folder for the event.
 4. **Process the photos.** Open the complete event or date directory in
@@ -137,7 +137,7 @@ flowchart TD
    its subfolders—not just `DNG/`, `NEF/`, or `JPG/`. Set `PHOTO_AZ_ACCOUNT`
    once in your shell profile or pass `-a`.
    ```bash
-   phototools_upload_azure.sh -a ACCOUNT -u detroit-riverwalk="$PHOTO_IMPORT_DEST/20261017"
+   phototools_upload_azure.sh -a ACCOUNT -u my-event="$PHOTO_IMPORT_DEST/20261017"
    ```
    Replace the example path with the complete event/date directory you want
    backed up. The container must already exist and the identity needs the
@@ -146,19 +146,19 @@ flowchart TD
    originals in place. Correct the reported issue, then rerun the same upload
    mapping with `-R`:
    ```bash
-   phototools_upload_azure.sh -a ACCOUNT -u detroit-riverwalk="$PHOTO_IMPORT_DEST/20261017" -R
+   phototools_upload_azure.sh -a ACCOUNT -u my-event="$PHOTO_IMPORT_DEST/20261017" -R
    ```
    Repeat until the upload completes without failures.
 
 **On Windows 11,** run the PowerShell equivalents of the same steps (see [Windows 11 (PowerShell)](#windows-11-powershell)):
 ```powershell
-$env:PHOTO_IMPORT_DEST = "D:\photos-01"
-phototools_import_photos.ps1 -EventName "Detroit Riverwalk" -DryRun
-phototools_import_photos.ps1 -EventName "Detroit Riverwalk" -Eject
-phototools_rename_dng.ps1 -DryRun -EventName "Detroit Riverwalk" "$env:PHOTO_IMPORT_DEST\20261017\DNG"
-phototools_rename_dng.ps1 -EventName "Detroit Riverwalk" "$env:PHOTO_IMPORT_DEST\20261017\DNG"
-phototools_upload_azure.ps1 -Account ACCOUNT -Upload detroit-riverwalk="$env:PHOTO_IMPORT_DEST\20261017"
-phototools_upload_azure.ps1 -Account ACCOUNT -Upload detroit-riverwalk="$env:PHOTO_IMPORT_DEST\20261017" -RetryMode
+$env:PHOTO_IMPORT_DEST = "D:\photos"
+phototools_import_photos.ps1 -EventName "My Event" -DryRun
+phototools_import_photos.ps1 -EventName "My Event" -Eject
+phototools_rename_dng.ps1 -DryRun -EventName "My Event" "$env:PHOTO_IMPORT_DEST\20261017\DNG"
+phototools_rename_dng.ps1 -EventName "My Event" "$env:PHOTO_IMPORT_DEST\20261017\DNG"
+phototools_upload_azure.ps1 -Account ACCOUNT -Upload my-event="$env:PHOTO_IMPORT_DEST\20261017"
+phototools_upload_azure.ps1 -Account ACCOUNT -Upload my-event="$env:PHOTO_IMPORT_DEST\20261017" -RetryMode
 ```
 
 See the individual tool sections below for all options, naming behavior,
@@ -187,7 +187,7 @@ prerequisites, and Azure authentication details.
 phototools_import_photos.sh -e EVENT [options]
 
 Required:
-  -e EVENT     event name ("Detroit Riverwalk" -> detroit-riverwalk)
+  -e EVENT     event name ("My Event" -> my-event)
 
 Options:
   -c OWNER     copyright owner written into each new DNG, e.g. "Richard Sedlak"
@@ -222,25 +222,25 @@ Environment overrides:
 **Examples:**
 ```bash
 # Set a destination once for repeated imports
-export PHOTO_IMPORT_DEST="/Volumes/photos-01"
+export PHOTO_IMPORT_DEST="/Volumes/photos"
 
 # Preview what will happen
-phototools_import_photos.sh -e "Detroit Riverwalk" -n
+phototools_import_photos.sh -e "My Event" -n
 
 # Preview only photos captured today
-phototools_import_photos.sh -e "Detroit Riverwalk" -today -n
+phototools_import_photos.sh -e "My Event" -today -n
 
 # Camera Make and Model are included by default in NEF, JPG and DNG filenames
-phototools_import_photos.sh -e "Detroit Riverwalk" -n
+phototools_import_photos.sh -e "My Event" -n
 
 # Import, then eject the card
-phototools_import_photos.sh -e "Detroit Riverwalk" -x
+phototools_import_photos.sh -e "My Event" -x
 
 # Second card from the same shoot: DNG numbering continues where the first card left off
-phototools_import_photos.sh -e "Detroit Riverwalk" -s /Volumes/BACKUP -x
+phototools_import_photos.sh -e "My Event" -s /Volumes/BACKUP -x
 
 # Override PHOTO_IMPORT_DEST for one import
-phototools_import_photos.sh -e "Detroit Riverwalk" -d /Volumes/alternate-archive -n
+phototools_import_photos.sh -e "My Event" -d /Volumes/alternate-archive -n
 ```
 
 **Resulting archive layout:**
@@ -323,7 +323,7 @@ If two shots share the exact same subsecond, a `_1`, `_2`, … suffix is added. 
 
 ### `workflow/phototools_rename_dng.sh` — Rename DNG files by date, event, and serial
 
-Renames DNG files to `YYYYMMDD-event-NNNNN.dng`. The event is normalized like `phototools_import_photos.sh` (for example, `Detroit Riverwalk` becomes `detroit-riverwalk`). The date comes from EXIF `DateTimeOriginal`, falling back to the file modification date when the tag is missing. Serials continue after the highest existing number for the same date and event.
+Renames DNG files to `YYYYMMDD-event-NNNNN.dng`. The event is normalized like `phototools_import_photos.sh` (for example, `My Event` becomes `my-event`). The date comes from EXIF `DateTimeOriginal`, falling back to the file modification date when the tag is missing. Serials continue after the highest existing number for the same date and event.
 
 **Usage** (installed in `/usr/local/bin`):
 ```bash
@@ -334,10 +334,10 @@ phototools_rename_dng.sh [-n] [-r] [-v] -e EVENT DIRECTORY
   -r       recurse into subdirectories
   -v       verbose: show where each file's date came from and why files are
            skipped (default: off)
-  -e EVENT event name, e.g. "Detroit Riverwalk"
+  -e EVENT event name, e.g. "My Event"
 ```
 
-For example, `IMG_1234.dng` might become `20261017-detroit-riverwalk-00008.dng` if `00007` is already present.
+For example, `IMG_1234.dng` might become `20261017-my-event-00008.dng` if `00007` is already present.
 
 ---
 
@@ -873,7 +873,7 @@ install\uninstall.ps1           # remove the installed scripts
 The environment variables are the same as on macOS. Instead of `~/.zshrc`, set them once for your account and open a new PowerShell window:
 
 ```powershell
-[Environment]::SetEnvironmentVariable('PHOTO_IMPORT_DEST', 'D:\photos-01', 'User')
+[Environment]::SetEnvironmentVariable('PHOTO_IMPORT_DEST', 'D:\photos', 'User')
 [Environment]::SetEnvironmentVariable('PHOTO_COPYRIGHT_OWNER', 'Richard Sedlak', 'User')
 [Environment]::SetEnvironmentVariable('PHOTO_AZ_ACCOUNT', 'rpsphotography001', 'User')
 ```
@@ -884,12 +884,12 @@ To set a variable only for the current PowerShell window, use `$env:NAME = 'valu
 
 ### `phototools_import_photos.ps1` — Import and organize photos from an SD card
 
-Works exactly like [`phototools_import_photos.sh`](#workflowimport_photossh--import-and-organize-photos-from-an-sd-card): copy and verify, rename to capture time, convert to DNG, stamp the copyright, zip the `NEF/` folders, and never import a photo twice. The archive layout is the same (`D:\photos-01\20261017\NEF.zip`, `JPG\`, `DNG\`, `prod\`, …).
+Works exactly like [`phototools_import_photos.sh`](#workflowimport_photossh--import-and-organize-photos-from-an-sd-card): copy and verify, rename to capture time, convert to DNG, stamp the copyright, zip the `NEF/` folders, and never import a photo twice. The archive layout is the same (`D:\photos\20261017\NEF.zip`, `JPG\`, `DNG\`, `prod\`, …).
 
 ```powershell
 phototools_import_photos.ps1 -EventName EVENT [options]
 
-  -EventName EVENT       event name (required). "Detroit Riverwalk" -> detroit-riverwalk
+  -EventName EVENT       event name (required). "My Event" -> my-event
   -CopyrightOwner OWNER  copyright owner written into each new DNG
                          (default: $env:PHOTO_COPYRIGHT_OWNER)
   -Source SOURCE         the card: a drive such as E:\ (default: the drive that has a DCIM folder)
@@ -916,13 +916,13 @@ Environment overrides are `PHOTO_IMPORT_DEST`, `PHOTO_COPYRIGHT_OWNER`, `PHOTO_C
 
 ```powershell
 # Preview what will happen
-phototools_import_photos.ps1 -EventName "Detroit Riverwalk" -Destination D:\photos-01 -DryRun
+phototools_import_photos.ps1 -EventName "My Event" -Destination D:\photos -DryRun
 
 # Import, then eject the card
-phototools_import_photos.ps1 -EventName "Detroit Riverwalk" -Eject
+phototools_import_photos.ps1 -EventName "My Event" -Eject
 
 # Second card from the same shoot: DNG numbering continues where the first card left off
-phototools_import_photos.ps1 -EventName "Detroit Riverwalk" -Source F:\ -Eject
+phototools_import_photos.ps1 -EventName "My Event" -Source F:\ -Eject
 ```
 
 Differences from the Mac version:
@@ -945,11 +945,11 @@ Same naming rules as `phototools_rename_nef.sh`: `DSC_0143.NEF` becomes `2026101
 
 ### `phototools_rename_dng.ps1` — Rename DNG files by date, event, and serial
 
-Same naming rules as [`phototools_rename_dng.sh`](#workflowphototools_rename_dngsh--rename-dng-files-by-date-event-and-serial): `IMG_1234.dng` becomes `20261017-detroit-riverwalk-00008.dng`, the date comes from EXIF `DateTimeOriginal` (falling back to the file modification date), and serials continue after the highest existing number for the same date and event. `.xmp` sidecars are renamed with their photo.
+Same naming rules as [`phototools_rename_dng.sh`](#workflowphototools_rename_dngsh--rename-dng-files-by-date-event-and-serial): `IMG_1234.dng` becomes `20261017-my-event-00008.dng`, the date comes from EXIF `DateTimeOriginal` (falling back to the file modification date), and serials continue after the highest existing number for the same date and event. `.xmp` sidecars are renamed with their photo.
 
 ```powershell
 phototools_rename_dng.ps1 [-DryRun] [-Recurse] [-VerboseLog] -EventName EVENT DIRECTORY
-  -EventName   event name, e.g. "Detroit Riverwalk"                (bash: -e)
+  -EventName   event name, e.g. "My Event"                (bash: -e)
   -DryRun      show what would be renamed, change nothing          (bash: -n)
                (with more than 500 files it warns that this can take several
                minutes and asks whether to continue)
@@ -958,8 +958,8 @@ phototools_rename_dng.ps1 [-DryRun] [-Recurse] [-VerboseLog] -EventName EVENT DI
 ```
 
 ```powershell
-phototools_rename_dng.ps1 -DryRun -EventName "Detroit Riverwalk" D:\photos-01\20261017\DNG
-phototools_rename_dng.ps1 -EventName "Detroit Riverwalk" D:\photos-01\20261017\DNG
+phototools_rename_dng.ps1 -DryRun -EventName "My Event" D:\photos\20261017\DNG
+phototools_rename_dng.ps1 -EventName "My Event" D:\photos\20261017\DNG
 ```
 
 ### Azure scripts: sign-in options (Windows)
