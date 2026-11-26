@@ -1,7 +1,8 @@
 import json
 import os
 from pathlib import Path
-import pty
+if os.name != "nt":
+    import pty
 import shutil
 import subprocess
 import tempfile
