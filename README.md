@@ -6,6 +6,13 @@ Some tools also have PowerShell versions for Windows 11; see [Windows 11 (PowerS
 
 > **Production location:** In normal use the tools are installed with `install/install.sh` and run from **`/usr/local/bin`**, by name (e.g. `phototools_import_photos.sh -e "My Event"`). The exception is when they were installed somewhere else with `install/install.sh -d DIR`; then they run from that folder. This repository is the source; the `workflow/...` paths below show where each script lives in the repo, not where it runs from.
 
+## Supported Platforms
+
+|Platform|Version|Testing Notes|
+|---|---|---|
+|Mac OS X|Golden Gate 27.2.1|Command-line version running ZSH|
+|Microsoft Windows|Microsoft Windows 11 Pro|PowerShell version 7. Not all commands are supported.|
+
 ## Repository layout
 
 ```
