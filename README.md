@@ -2,7 +2,16 @@
 
 A collection of photo management tools, grouped into directories by purpose.
 
+Some tools also have PowerShell versions for Windows 11; see [Windows 11 (PowerShell)](#windows-11-powershell) for the available scripts and their options.
+
 > **Production location:** In normal use the tools are installed with `install/install.sh` and run from **`/usr/local/bin`**, by name (e.g. `phototools_import_photos.sh -e "My Event"`). The exception is when they were installed somewhere else with `install/install.sh -d DIR`; then they run from that folder. This repository is the source; the `workflow/...` paths below show where each script lives in the repo, not where it runs from.
+
+## Supported Platforms
+
+|Platform|Version|Testing Notes|
+|---|---|---|
+|Mac OS X|Golden Gate 27.2.1|Command-line version running ZSH|
+|Microsoft Windows|Microsoft Windows 11 Pro|PowerShell version 7. Not all commands are supported.|
 
 ## Repository layout
 
@@ -11,26 +20,32 @@ photo-tools/
 ├── README.md                 # this file
 ├── install/
 │   ├── install.sh            # installs prerequisites, then copies every tool script into /usr/local/bin
-│   └── uninstall.sh          # removes installed tools and Stream Deck launchers
+│   ├── uninstall.sh          # removes installed tools and Stream Deck launchers
+│   └── install.ps1           # Windows installer
 ├── stream-deck/              # .command launchers for Stream Deck
 ├── workflow/                 # post-shoot workflow: SD card import and file organization
 │   ├── phototools_import_photos.sh      # PRIMARY: import an SD card after a shoot (copy, rename, DNG)
+│   ├── phototools_import_photos.ps1      # Windows version
 │   ├── phototools_rename_nef.sh         # rename NEFs/JPGs to capture time (used by phototools_import_photos.sh)
+│   ├── phototools_rename_nef.ps1         # Windows version
 │   └── phototools_rename_dng.sh         # rename DNGs by capture date, event and serial
 ├── cloud/                    # cloud backup and sharing
 │   ├── phototools_upload_azure.sh       # upload folders to Azure Blob containers, with a retry folder for failures
+│   ├── phototools_upload_azure.ps1      # Windows version
 │   ├── phototools_report_azure.sh       # read-only Azure Blob account statistics and Excel reports
 │   ├── phototools_prune_nef.sh          # archive (or delete) NEF.zip files and NEFs in Azure Blob Storage
 │   ├── phototools_archive_container.sh  # move a whole named Azure Blob container to the Archive tier
 │   └── phototools_unarchive_container.sh # move an archived Azure Blob container back to Hot (or Cool/Cold)
 └── tools/                    # dependency management
   ├── phototools_prereqs.sh            # checks for / installs required tools (via Homebrew)
-  └── phototools_update.sh             # updates Homebrew-managed dependencies
+  ├── phototools_prereqs.ps1           # Windows: via winget
+  ├── phototools_update.sh             # updates Homebrew-managed dependencies
+  └── phototools_update.ps1            # Windows: updates winget-managed dependencies
 ```
 
 | Directory   | Purpose                                                            |
 |-------------|--------------------------------------------------------------------|
-| `install/`  | Installing the tools on a Mac (not a tool itself).                 |
+| `install/`  | Installing the tools on a Mac or Windows PC (not a tool itself).   |
 | `stream-deck/` | Launchers for running photo imports from Stream Deck.           |
 | `workflow/` | Getting photos off the camera and into the archive after a shoot.  |
 | `cloud/`    | Copying photos to cloud storage.                                   |
@@ -40,9 +55,9 @@ photo-tools/
 
 - Give each tool a `-v` option that shows what it is doing; it is off by default.
 - Put each tool in a top-level directory named for its purpose (e.g. `workflow/`). Create a new directory when a tool doesn't fit an existing one.
-- `install/install.sh` picks up every `*.sh` one level down (`<tool-dir>/<name>.sh`) and every `stream-deck/*.command` automatically. Script names must be unique, since they're all installed into one folder.
-- Keep scripts that call each other in the same directory — `phototools_import_photos.sh` finds `phototools_rename_nef.sh` by looking next to itself.
-- If a new tool needs another program, add a check for it to `tools/phototools_prereqs.sh`.
+- `install/install.sh` picks up every `*.sh` one level down and every `stream-deck/*.command`; `install/install.ps1` picks up every `*.ps1` one level down. Script names must be unique within each destination.
+- Keep scripts that call each other in the same directory — `phototools_import_photos.sh` finds `phototools_rename_nef.sh` by looking next to itself, as does the PowerShell version.
+- If a new tool needs another program, add a check for it to `tools/phototools_prereqs.sh` or `tools/phototools_prereqs.ps1`, as appropriate.
 - Add the tool to the tree and table above, and give it a section under [Tools](#tools).
 
 ---
@@ -750,3 +765,204 @@ bash workflow/phototools_rename_nef.sh ~/Pictures/some-folder
 ```
 
 Both scripts work with the stock macOS bash 3.2.
+
+---
+
+## Windows 11 (PowerShell)
+
+The `.ps1` scripts below are Windows PowerShell versions of the earlier bash tools. They have not yet been updated for all subsequent changes to the macOS versions. Windows versions of DNG renaming, Azure reporting, pruning, archiving, unarchiving, and uninstalling are not yet available. They target Windows PowerShell 5.1 and PowerShell 7+.
+
+| macOS script                | Windows script               |
+|-----------------------------|------------------------------|
+| `install/install.sh`        | `install/install.ps1`        |
+| `tools/phototools_prereqs.sh`          | `tools/phototools_prereqs.ps1`          |
+| `tools/phototools_update.sh`           | `tools/phototools_update.ps1`           |
+| `workflow/phototools_import_photos.sh` | `workflow/phototools_import_photos.ps1` |
+| `workflow/phototools_rename_nef.sh`    | `workflow/phototools_rename_nef.ps1`    |
+| `cloud/phototools_upload_azure.sh`     | `cloud/phototools_upload_azure.ps1`     |
+
+PowerShell parameter names are not case-sensitive, so the one-letter bash flags (`-v` and `-V`, `-r` and `-R`, …) can't be reused. The PowerShell scripts take full names instead, e.g. `-EventName`, `-DryRun`. Every script has built-in help: `Get-Help phototools_import_photos.ps1 -Full`.
+
+### Prerequisites (Windows)
+
+| Tool                | Needed by                              | Installed by `tools\phototools_prereqs.ps1` with                     |
+|---------------------|----------------------------------------|-----------------------------------------------------------|
+| winget              | installing the tools below             | — (included with Windows 11; otherwise install *App Installer* from the Microsoft Store) |
+| exiftool            | `phototools_import_photos.ps1`, `phototools_rename_nef.ps1`  | `winget install OliverBetz.ExifTool`                      |
+| Adobe DNG Converter | `phototools_import_photos.ps1`                    | `winget install Adobe.DNGConverter`                       |
+| Azure CLI           | `phototools_upload_azure.ps1`                     | `winget install Microsoft.AzureCLI`                       |
+| azcopy              | `phototools_upload_azure.ps1`                     | `winget install Microsoft.Azure.AZCopy.10`                |
+
+There is no `jq` or `zip`/`unzip` requirement on Windows: PowerShell reads JSON itself, and NEF folders are zipped with .NET.
+
+```powershell
+tools\phototools_prereqs.ps1 -CheckOnly   # check only: report what's missing
+tools\phototools_prereqs.ps1              # install anything missing
+tools\phototools_update.ps1               # install missing prerequisites and update winget-managed dependencies
+```
+
+- Some installers (Adobe DNG Converter, Azure CLI) ask for administrator approval with a UAC prompt.
+- A program installed during the run may not be on `PATH` until you open a new PowerShell window; the script tells you when that is the case.
+- If DNG Converter is installed somewhere other than `C:\Program Files\Adobe\Adobe DNG Converter.exe`, set `DNG_CONVERTER` to the path of `Adobe DNG Converter.exe`; both `tools\phototools_prereqs.ps1` and `phototools_import_photos.ps1` use it.
+- Without DNG Converter, `phototools_import_photos.ps1 -SkipDng` still works (it copies and renames but makes no DNGs).
+
+### Install (Windows)
+
+PowerShell only runs scripts that its *execution policy* allows. Windows 11 defaults to `Restricted`, which blocks all `.ps1` files. Allow locally stored scripts once, for your account only:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+If you downloaded the repository as a zip file, Windows marks the files as coming from the internet and `RemoteSigned` still blocks them. Clear the mark once:
+
+```powershell
+Get-ChildItem -Recurse -Filter *.ps1 | Unblock-File
+```
+
+Then run the installer from the repository:
+
+```powershell
+install\install.ps1 -DryRun   # preview: report missing prerequisites, show what will be installed
+install\install.ps1           # install
+```
+
+The installer:
+- runs `tools\phototools_prereqs.ps1` to install any missing prerequisites, and stops if one can't be installed;
+- copies every tool script, including `phototools_prereqs.ps1` and `phototools_update.ps1`, into `%LOCALAPPDATA%\photo-tools\bin`, creating it if needed (no administrator rights needed);
+- adds that folder to your **user** `PATH`, so the tools run by name from any new PowerShell window (`-NoPath` skips this).
+
+Use `-Destination DIR` to install somewhere else. Install all scripts to the same folder, since `phototools_import_photos.ps1` needs `phototools_rename_nef.ps1` next to it. Re-run the installer after pulling updates; installed copies are replaced.
+
+To run a script straight from the repository without installing it, call it by path, e.g. `.\workflow\phototools_rename_nef.ps1 D:\Photos\20261017\NEF`.
+
+### Settings (Windows)
+
+The environment variables are the same as on macOS. Instead of `~/.zshrc`, set them once for your account and open a new PowerShell window:
+
+```powershell
+[Environment]::SetEnvironmentVariable('PHOTO_IMPORT_DEST', 'D:\photos-01', 'User')
+[Environment]::SetEnvironmentVariable('PHOTO_COPYRIGHT_OWNER', 'Richard Sedlak', 'User')
+[Environment]::SetEnvironmentVariable('PHOTO_AZ_ACCOUNT', 'rpsphotography001', 'User')
+```
+
+These settings apply to new PowerShell windows. You can also set them in Windows by searching for **Edit environment variables for your account**, selecting **Environment Variables**, and adding them under **User variables**.
+
+To set a variable only for the current PowerShell window, use `$env:NAME = 'value'`. You can make that assignment run in every PowerShell window by putting it in your PowerShell profile (`notepad $PROFILE`). Don't store secrets in persistent environment variables or your profile; set them only in the window where you need them.
+
+### `phototools_import_photos.ps1` — Import and organize photos from an SD card
+
+Works exactly like [`phototools_import_photos.sh`](#workflowimport_photossh--import-and-organize-photos-from-an-sd-card): copy and verify, rename to capture time, convert to DNG, stamp the copyright, zip the `NEF/` folders, and never import a photo twice. The archive layout is the same (`D:\photos-01\20261017\NEF.zip`, `JPG\`, `DNG\`, `prod\`, …).
+
+```powershell
+phototools_import_photos.ps1 -EventName EVENT [options]
+
+  -EventName EVENT       event name (required). "Detroit Riverwalk" -> detroit-riverwalk
+  -CopyrightOwner OWNER  copyright owner written into each new DNG
+                         (default: $env:PHOTO_COPYRIGHT_OWNER)
+  -Source SOURCE         the card: a drive such as E:\ (default: the drive that has a DCIM folder)
+  -Destination DEST      destination root (required unless $env:PHOTO_IMPORT_DEST is set)
+  -Date YYYYMMDD         put everything in this one date folder instead of sorting by capture date
+  -VerifyBytes           verify copies byte-for-byte (default: size check)
+  -SkipDng               copy and rename only; skip DNG conversion (and NEF compression)
+  -NoCompress            do not zip the NEF folders afterwards
+  -Force                 ignore the manifest and copy everything again
+  -Eject                 eject the card when finished
+  -DryRun                show what would happen, change nothing
+```
+
+| macOS option | Windows parameter | | macOS option | Windows parameter |
+|--------------|-------------------|-|--------------|-------------------|
+| `-e EVENT`   | `-EventName`      | | `-F`         | `-Force`          |
+| `-c OWNER`   | `-CopyrightOwner` | | `-x`         | `-Eject`          |
+| `-s SOURCE`  | `-Source`         | | `-n`         | `-DryRun`         |
+| `-d DEST`    | `-Destination`    | | `-V`         | `-VerifyBytes`    |
+| `-D YYYYMMDD`| `-Date`           | | `-k`         | `-SkipDng`        |
+| `-z`         | `-NoCompress`     | |              |                   |
+
+Environment overrides are `PHOTO_IMPORT_DEST`, `PHOTO_COPYRIGHT_OWNER`, `PHOTO_COMPRESS_NEF`, `DNG_CONVERTER` (default `C:\Program Files\Adobe\Adobe DNG Converter.exe`) and `DNG_OPTS` (default `-c -p1`).
+
+```powershell
+# Preview what will happen
+phototools_import_photos.ps1 -EventName "Detroit Riverwalk" -Destination D:\photos-01 -DryRun
+
+# Import, then eject the card
+phototools_import_photos.ps1 -EventName "Detroit Riverwalk" -Eject
+
+# Second card from the same shoot: DNG numbering continues where the first card left off
+phototools_import_photos.ps1 -EventName "Detroit Riverwalk" -Source F:\ -Eject
+```
+
+Differences from the Mac version:
+- The card is found by looking for a ready drive with a `DCIM` folder in its root (the destination's drive is ignored). With two cards inserted, name the one to import with `-Source`.
+- `-Eject` uses Windows' own *Eject* for removable drives. If the card is not a drive root, eject it in File Explorer.
+- Adobe DNG Converter opens as a Windows program while it works; the script waits for it and shows the conversion progress.
+- The copyright sign and any non-ASCII owner name or folder name are handled in UTF-8.
+
+### `phototools_rename_nef.ps1` — Rename NEF (or JPG) files by capture time
+
+```powershell
+phototools_rename_nef.ps1 [-DryRun] [-Recurse] [-Extension EXT] DIRECTORY
+  -DryRun      show what would be renamed, change nothing        (bash: -n)
+  -Recurse     recurse into subdirectories                       (bash: -r)
+  -Extension   rename files with this extension instead of NEF,  (bash: -e)
+               e.g. -Extension jpg (upper and lower case match; the extension's case is kept)
+```
+
+Same naming rules as `phototools_rename_nef.sh`: `DSC_0143.NEF` becomes `2026101720184537.NEF`, `_1`, `_2`, … are added on clashes, `.xmp` sidecars are renamed with their photo, and files without a capture time are skipped.
+
+### `phototools_upload_azure.ps1` — Upload photo folders to Azure Blob Storage
+
+Works exactly like [`phototools_upload_azure.sh`](#cloudupload_azuresh--upload-photo-folders-to-azure-blob-storage) (sign in, check every container, upload with `azcopy`, report and retry), including the container layout, `general/` folder, `report.txt`, `retry-manifest.tsv` and exit codes `0` / `1` / `2`.
+
+| macOS option   | Windows parameter                       | Environment variable                              |
+|----------------|-----------------------------------------|---------------------------------------------------|
+| `-a ACCOUNT`   | `-Account`                              | `PHOTO_AZ_ACCOUNT`                                |
+| `-u C=DIR`     | `-Upload "C=DIR","C2=DIR2"`             |                                                   |
+| `-m MAPFILE`   | `-MapFile`                              |                                                   |
+| `-p PREFIX`    | `-Prefix`                               |                                                   |
+| `-r RETRY`     | `-RetryFolder`                          | `PHOTO_UPLOAD_RETRY`                              |
+| `-R`           | `-RetryMode`                            |                                                   |
+| `-I user\|sp`  | `-Identity user\|sp`                    | `PHOTO_AZ_AUTH`                                   |
+| `-i APP_ID`    | `-ClientId`                             | `PHOTO_AZ_CLIENT_ID`, `AZURE_CLIENT_ID`           |
+| `-z TENANT`    | `-TenantId`                             | `PHOTO_AZ_TENANT_ID`, `AZURE_TENANT_ID`           |
+| `-K PEM`       | `-CertificatePath`                      | `PHOTO_AZ_CERT_PATH`, `AZURE_CLIENT_CERTIFICATE_PATH` |
+| `-A sas\|oauth`| `-Transfer`                             | `PHOTO_AZ_TRANSFER`                               |
+| `-t HOURS`     | `-SasHours`                             |                                                   |
+| `-T TIER`      | `-Tier`                                 |                                                   |
+| `-O`           | `-Overwrite`                            |                                                   |
+| `-n`           | `-DryRun`                               |                                                   |
+| `-v`           | `-VerboseLog`                           | `PHOTO_UPLOAD_VERBOSE=1`                          |
+
+```powershell
+az login        # once; lasts for weeks
+
+# Preview: signs in, checks both containers, lists each file and the blob it becomes
+phototools_upload_azure.ps1 -Account rpsphotography001 -Upload "charlevoix=D:\Export\charlevoix","grand-haven=D:\Export\grand-haven" -DryRun
+
+# Upload, under a 2026/ folder in each container
+phototools_upload_azure.ps1 -Account rpsphotography001 -Upload "charlevoix=D:\Export\charlevoix","grand-haven=D:\Export\grand-haven" -Prefix 2026
+
+# Some files failed: fix the cause, then upload only those
+phototools_upload_azure.ps1 -Account rpsphotography001 -Upload "charlevoix=D:\Export\charlevoix","grand-haven=D:\Export\grand-haven" -Prefix 2026 -RetryMode
+
+# Categories kept in a file (one CONTAINER=DIR per line, # comments allowed)
+phototools_upload_azure.ps1 -Account rpsphotography001 -MapFile $HOME\photo-categories.txt
+```
+
+Azure itself works the same way as on macOS: see [Access requirements (RBAC)](#access-requirements-rbac) for the role you need, and [Service principal setup](#service-principal-setup) for creating one (the `az` commands are identical; use `$ACCOUNT_ID = az storage account show ... --query id -o tsv` in PowerShell).
+
+Differences from the Mac version:
+- **Retry folder:** the retry folder holds a *hard link* to each failed file (a copy if the retry folder is on another drive), not a symbolic link, because Windows only allows symbolic links with administrator rights or Developer Mode. The original stays where it was, and a successful retry removes the link or copy.
+- **Service principal secret:** Windows has no `security` Keychain command. Use a certificate (`-CertificatePath`, preferred), set `PHOTO_AZ_CLIENT_SECRET` (or `AZURE_CLIENT_SECRET`) only in the window where you run the upload, or keep the secret in a [SecretManagement](https://learn.microsoft.com/powershell/utility-modules/secretmanagement/overview) vault: if the `Microsoft.PowerShell.SecretManagement` module is installed, the script reads the secret named `photo-tools-azure-<appId>` (change the prefix with `PHOTO_AZ_SECRET_NAME`).
+- **Certificates:** the Mac version warns if other users can read the certificate file. Windows file permissions work differently, so keep the PEM in a folder only your account can read, such as `%USERPROFILE%\.photo-tools`.
+- **Logs and reports** go to `%USERPROFILE%\.photo-tools\upload-runs\<date-time>\` (change it with `PHOTO_UPLOAD_LOGS`).
+- **JSON** from `azcopy` is parsed by PowerShell, so `jq` is not needed.
+
+### Windows tips
+
+- Run with `-DryRun` first, as on the Mac.
+- Long runs show a live status line; when output is redirected to a file, a line is written every 10% instead.
+- If an import or upload is interrupted (Ctrl-C), re-run the same command to finish it.
+- Quote paths that contain spaces: `-Destination "D:\My Photos"`.
+- Very long paths (over 260 characters) may fail on older Windows settings; keep the destination near a drive root, e.g. `D:\photos`.
