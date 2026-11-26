@@ -190,7 +190,7 @@ Required:
   -e EVENT     event name ("My Event" -> my-event)
 
 Options:
-  -c OWNER     copyright owner written into each new DNG, e.g. "Richard Sedlak"
+  -c OWNER     copyright owner written into each new DNG, e.g. "Photographer or Studio Name"
                (default: $PHOTO_COPYRIGHT_OWNER; no copyright if neither is set)
   -s SOURCE    card mount point (default: the volume in /Volumes that has a DCIM folder)
   -d DEST      destination root (required unless PHOTO_IMPORT_DEST is set)
@@ -265,16 +265,16 @@ phototools_import_photos.sh -e "My Event" -d /Volumes/alternate-archive -n
 Set your name once in `~/.zshrc` so every import stamps it automatically:
 
 ```bash
-export PHOTO_COPYRIGHT_OWNER="Richard Sedlak"
+export PHOTO_COPYRIGHT_OWNER="Photographer or Studio Name"
 ```
 
 `-c "Name"` overrides it for a single import. For a photo captured 2026-10-17, each new DNG gets:
 
 | Tag                                       | Value                    |
 |-------------------------------------------|--------------------------|
-| EXIF `Copyright`, XMP `dc:rights`         | `© 2026 Richard Sedlak`  |
-| EXIF `Artist`, XMP `dc:creator`           | `Richard Sedlak`         |
-| XMP `xmpRights:Marked`                    | `True` (copyrighted)     |
+| EXIF `Copyright`, XMP `dc:rights`         | `© 2026 Photographer or Studio Name` |
+| EXIF `Artist`, XMP `dc:creator`           | `Photographer or Studio Name` |
+| XMP `xmpRights:Marked`                    | `True` (copyrighted) |
 
 These are the fields Lightroom shows as Copyright, Creator and Copyright Status. IPTC copyright and by-line are updated as well if the file already has IPTC data. The year comes from each photo's capture date, so a New Year's Eve shoot is split between the two years correctly.
 
@@ -365,10 +365,10 @@ For service principal authentication, client secrets come from `PHOTO_AZ_CLIENT_
 
 ```bash
 # Print per-container and account-wide totals
-phototools_report_azure.sh -a rpsphotography001
+phototools_report_azure.sh -a storageaccount
 
 # Save a workbook (the output directory must already exist)
-phototools_report_azure.sh -a rpsphotography001 -d ~/Desktop/storage-report.xlsx
+phototools_report_azure.sh -a storageaccount -d ~/Desktop/storage-report.xlsx
 ```
 
 Relative output paths are resolved from the current terminal directory. The report prints the full path of the workbook it writes.
@@ -409,13 +409,13 @@ phototools_prune_nef.sh [-a ACCOUNT] [-c CONTAINER ...] [-p PREFIX] [-D] [-n | -
 
 ```bash
 # See what would be removed, with file names
-phototools_prune_nef.sh -a rpsphotography001 -n -l
+phototools_prune_nef.sh -a storageaccount -n -l
 
 # Archive, after one confirmation
-phototools_prune_nef.sh -a rpsphotography001 -c charlevoix
+phototools_prune_nef.sh -a storageaccount -c charlevoix
 
 # Delete one date folder's NEFs permanently, without asking
-phototools_prune_nef.sh -a rpsphotography001 -c charlevoix -p 2026/20261017/ -D -y
+phototools_prune_nef.sh -a storageaccount -c charlevoix -p 2026/20261017/ -D -y
 ```
 
 Exit status: `0` done (or nothing to do, or you declined), `2` some blobs could not be pruned, `1` error.
@@ -445,10 +445,10 @@ phototools_archive_container.sh [-a ACCOUNT] -c CONTAINER [-n | -y] [-l] [-I use
 
 ```bash
 # See what would be archived
-phototools_archive_container.sh -a rpsphotography001 -c charlevoix -n
+phototools_archive_container.sh -a storageaccount -c charlevoix -n
 
 # Archive, after one confirmation
-phototools_archive_container.sh -a rpsphotography001 -c charlevoix
+phototools_archive_container.sh -a storageaccount -c charlevoix
 ```
 
 Exit status: `0` done (or nothing to do, or you declined), `2` some blobs could not be archived, `1` error.
@@ -479,13 +479,13 @@ phototools_unarchive_container.sh [-a ACCOUNT] -c CONTAINER [-t TIER] [-n | -y] 
 
 ```bash
 # See what would be unarchived
-phototools_unarchive_container.sh -a rpsphotography001 -c charlevoix -n
+phototools_unarchive_container.sh -a storageaccount -c charlevoix -n
 
 # Move to Hot, after one confirmation
-phototools_unarchive_container.sh -a rpsphotography001 -c charlevoix
+phototools_unarchive_container.sh -a storageaccount -c charlevoix
 
 # Move to Cool without asking
-phototools_unarchive_container.sh -a rpsphotography001 -c charlevoix -t Cool -y
+phototools_unarchive_container.sh -a storageaccount -c charlevoix -t Cool -y
 ```
 
 Exit status: `0` done (or nothing to do, or you declined), `2` some blobs could not be moved, `1` error.
@@ -516,7 +516,7 @@ Uploads local folders into Azure Blob Storage containers, one container per cate
 ```bash
 phototools_upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [options]
 
-  -a ACCOUNT    storage account name, e.g. rpsphotography001 (default: $PHOTO_AZ_ACCOUNT)
+  -a ACCOUNT    storage account name, e.g. storageaccount (default: $PHOTO_AZ_ACCOUNT)
   -u C=DIR      upload folder DIR into container C (repeat for each category)
   -m MAPFILE    read CONTAINER=DIR (or CONTAINER<TAB>DIR) lines from a file
   -p PREFIX     optional extra folder in front of everything uploaded, e.g. 2026
@@ -547,11 +547,11 @@ Exit status: `0` everything uploaded (or already there), `2` some files failed a
 az storage account list --query '[].{name:name, group:resourceGroup, location:primaryLocation}' -o table
 
 # check it's the right one: list its containers (these are your categories)
-az storage container list --account-name rpsphotography001 --auth-mode login --query '[].name' -o tsv
+az storage container list --account-name storageaccount --auth-mode login --query '[].name' -o tsv
 ```
 Or in the Azure portal: **Storage accounts** → the account → its name is the page title. Set it once in `~/.zshrc` so you don't need `-a` each time:
 ```bash
-export PHOTO_AZ_ACCOUNT=rpsphotography001
+export PHOTO_AZ_ACCOUNT=storageaccount
 ```
 
 **Choosing who signs in (`-I` / `PHOTO_AZ_AUTH`):** this picks the Azure identity the script signs in as, which is also the identity Azure checks for permission to upload. If it's not set, `user` is used.
@@ -579,19 +579,19 @@ Being *Owner* of the subscription is not enough for either one: Owner manages th
 **Examples:**
 ```bash
 # Preview: signs in, checks both containers, lists each file and the blob it becomes
-phototools_upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -n
+phototools_upload_azure.sh -a storageaccount -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -n
 
 # Upload
-phototools_upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven
+phototools_upload_azure.sh -a storageaccount -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven
 
 # Same, but under a 2026/ folder in each container
-phototools_upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -p 2026
+phototools_upload_azure.sh -a storageaccount -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -p 2026
 
 # Some files failed: fix the cause, then upload only those
-phototools_upload_azure.sh -a rpsphotography001 -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -R
+phototools_upload_azure.sh -a storageaccount -u charlevoix=~/Export/charlevoix -u grand-haven=~/Export/grand-haven -R
 
 # Categories kept in a file (one CONTAINER=DIR per line, # comments allowed)
-phototools_upload_azure.sh -a rpsphotography001 -m ~/photo-categories.txt
+phototools_upload_azure.sh -a storageaccount -m ~/photo-categories.txt
 ```
 
 **Creating missing containers (`-c`):** when a container does not exist in the storage account, `-c` decides what happens:
@@ -603,7 +603,7 @@ With `-n` nothing is created and nothing is asked; the output says which contain
 
 ```bash
 # Create the container grand-haven if it is missing, without asking
-phototools_upload_azure.sh -a rpsphotography001 -u grand-haven=~/Export/grand-haven -c yes
+phototools_upload_azure.sh -a storageaccount -u grand-haven=~/Export/grand-haven -c yes
 ```
 
 **Retry folder layout** (default: inside each source folder; links are hidden from normal uploads):
@@ -629,7 +629,7 @@ Whoever signs in, you or a service principal, needs this Azure role on the stora
 `Owner` or `Contributor` on the subscription are **not** enough on their own, because they don't include data access. Assign the role (you need *Owner*, *User Access Administrator* or *Role Based Access Control Administrator* to do this):
 
 ```bash
-ACCOUNT_ID=$(az storage account show -n rpsphotography001 -g rg-photography --query id -o tsv)
+ACCOUNT_ID=$(az storage account show -n storageaccount -g rg-photography --query id -o tsv)
 az role assignment create --assignee "$(az ad signed-in-user show --query id -o tsv)" \
   --role "Storage Blob Data Contributor" --scope "$ACCOUNT_ID"
 ```
@@ -660,7 +660,7 @@ A service principal lets the upload run under its own identity instead of yours,
      Or export `PHOTO_AZ_CLIENT_SECRET` (or `AZURE_CLIENT_SECRET`) only in the shell where you run the upload. Don't put a secret in `~/.zshrc`. There is deliberately no command-line option for the secret, because command lines show up in `ps` and shell history.
 4. **Settings in `~/.zshrc`** (none of these are secret):
    ```bash
-   export PHOTO_AZ_ACCOUNT=rpsphotography001
+   export PHOTO_AZ_ACCOUNT=storageaccount
    export PHOTO_AZ_AUTH=sp
    export PHOTO_AZ_CLIENT_ID=<appId>
    export PHOTO_AZ_TENANT_ID=<tenant>
@@ -874,8 +874,8 @@ The environment variables are the same as on macOS. Instead of `~/.zshrc`, set t
 
 ```powershell
 [Environment]::SetEnvironmentVariable('PHOTO_IMPORT_DEST', 'D:\photos', 'User')
-[Environment]::SetEnvironmentVariable('PHOTO_COPYRIGHT_OWNER', 'Richard Sedlak', 'User')
-[Environment]::SetEnvironmentVariable('PHOTO_AZ_ACCOUNT', 'rpsphotography001', 'User')
+[Environment]::SetEnvironmentVariable('PHOTO_COPYRIGHT_OWNER', 'Photographer or Studio Name', 'User')
+[Environment]::SetEnvironmentVariable('PHOTO_AZ_ACCOUNT', '<storage account name>', 'User')
 ```
 
 These settings apply to new PowerShell windows. You can also set them in Windows by searching for **Edit environment variables for your account**, selecting **Environment Variables**, and adding them under **User variables**.
@@ -989,10 +989,10 @@ phototools_report_azure.ps1 [-Account ACCOUNT] [-Summary | -Detail FILE.xlsx] [-
 
 ```powershell
 # Print per-container and account-wide totals
-phototools_report_azure.ps1 -Account rpsphotography001
+phototools_report_azure.ps1 -Account storageaccount
 
 # Save a workbook (the output directory must already exist)
-phototools_report_azure.ps1 -Account rpsphotography001 -Detail $HOME\Desktop\storage-report.xlsx
+phototools_report_azure.ps1 -Account storageaccount -Detail $HOME\Desktop\storage-report.xlsx
 ```
 
 ### `phototools_prune_nef.ps1` — Archive or delete unneeded NEFs in Azure Blob Storage
@@ -1011,13 +1011,13 @@ phototools_prune_nef.ps1 [-Account ACCOUNT] [-Container C[,C2 ...]] [-Prefix PRE
 
 ```powershell
 # See what would be removed, with file names
-phototools_prune_nef.ps1 -Account rpsphotography001 -DryRun -List
+phototools_prune_nef.ps1 -Account storageaccount -DryRun -List
 
 # Archive, after one confirmation
-phototools_prune_nef.ps1 -Account rpsphotography001 -Container charlevoix
+phototools_prune_nef.ps1 -Account storageaccount -Container charlevoix
 
 # Delete one date folder's NEFs permanently, without asking
-phototools_prune_nef.ps1 -Account rpsphotography001 -Container charlevoix -Prefix 2026/20261017/ -Delete -Yes
+phototools_prune_nef.ps1 -Account storageaccount -Container charlevoix -Prefix 2026/20261017/ -Delete -Yes
 ```
 
 ### `phototools_archive_container.ps1` — Archive a whole Azure Blob container
@@ -1033,8 +1033,8 @@ phototools_archive_container.ps1 [-Account ACCOUNT] -Container CONTAINER [-DryRu
 ```
 
 ```powershell
-phototools_archive_container.ps1 -Account rpsphotography001 -Container charlevoix -DryRun
-phototools_archive_container.ps1 -Account rpsphotography001 -Container charlevoix
+phototools_archive_container.ps1 -Account storageaccount -Container charlevoix -DryRun
+phototools_archive_container.ps1 -Account storageaccount -Container charlevoix
 ```
 
 ### `phototools_unarchive_container.ps1` — Unarchive a whole Azure Blob container
@@ -1051,8 +1051,8 @@ phototools_unarchive_container.ps1 [-Account ACCOUNT] -Container CONTAINER [-Tie
 ```
 
 ```powershell
-phototools_unarchive_container.ps1 -Account rpsphotography001 -Container charlevoix -DryRun
-phototools_unarchive_container.ps1 -Account rpsphotography001 -Container charlevoix -Tier Cool -Yes
+phototools_unarchive_container.ps1 -Account storageaccount -Container charlevoix -DryRun
+phototools_unarchive_container.ps1 -Account storageaccount -Container charlevoix -Tier Cool -Yes
 ```
 
 ### `phototools_upload_azure.ps1` — Upload photo folders to Azure Blob Storage
@@ -1082,16 +1082,16 @@ Works exactly like [`phototools_upload_azure.sh`](#cloudupload_azuresh--upload-p
 az login        # once; lasts for weeks
 
 # Preview: signs in, checks both containers, lists each file and the blob it becomes
-phototools_upload_azure.ps1 -Account rpsphotography001 -Upload "charlevoix=D:\Export\charlevoix","grand-haven=D:\Export\grand-haven" -DryRun
+phototools_upload_azure.ps1 -Account storageaccount -Upload "charlevoix=D:\Export\charlevoix","grand-haven=D:\Export\grand-haven" -DryRun
 
 # Upload, under a 2026/ folder in each container
-phototools_upload_azure.ps1 -Account rpsphotography001 -Upload "charlevoix=D:\Export\charlevoix","grand-haven=D:\Export\grand-haven" -Prefix 2026
+phototools_upload_azure.ps1 -Account storageaccount -Upload "charlevoix=D:\Export\charlevoix","grand-haven=D:\Export\grand-haven" -Prefix 2026
 
 # Some files failed: fix the cause, then upload only those
-phototools_upload_azure.ps1 -Account rpsphotography001 -Upload "charlevoix=D:\Export\charlevoix","grand-haven=D:\Export\grand-haven" -Prefix 2026 -RetryMode
+phototools_upload_azure.ps1 -Account storageaccount -Upload "charlevoix=D:\Export\charlevoix","grand-haven=D:\Export\grand-haven" -Prefix 2026 -RetryMode
 
 # Categories kept in a file (one CONTAINER=DIR per line, # comments allowed)
-phototools_upload_azure.ps1 -Account rpsphotography001 -MapFile $HOME\photo-categories.txt
+phototools_upload_azure.ps1 -Account storageaccount -MapFile $HOME\photo-categories.txt
 ```
 
 Azure itself works the same way as on macOS: see [Access requirements (RBAC)](#access-requirements-rbac) for the role you need, and [Service principal setup](#service-principal-setup) for creating one (the `az` commands are identical; use `$ACCOUNT_ID = az storage account show ... --query id -o tsv` in PowerShell).

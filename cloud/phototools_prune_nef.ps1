@@ -70,10 +70,10 @@ Show the Azure CLI commands being run (default: off). (This is not the common
 -Verbose parameter.)
 
 .EXAMPLE
-.\phototools_prune_nef.ps1 -Account rpsphotography001 -DryRun
+.\phototools_prune_nef.ps1 -Account storageaccount -DryRun
 
 .EXAMPLE
-.\phototools_prune_nef.ps1 -Account rpsphotography001 -Container charlevoix -Prefix 20261017/ -Yes
+.\phototools_prune_nef.ps1 -Account storageaccount -Container charlevoix -Prefix 20261017/ -Yes
 #>
 [CmdletBinding()]
 param(

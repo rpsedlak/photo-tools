@@ -48,10 +48,10 @@ Show the Azure CLI commands being run (default: off). (This is not the common
 -Verbose parameter.)
 
 .EXAMPLE
-.\phototools_report_azure.ps1 -Account rpsphotography001
+.\phototools_report_azure.ps1 -Account storageaccount
 
 .EXAMPLE
-.\phototools_report_azure.ps1 -Account rpsphotography001 -Detail .\azure-report.xlsx
+.\phototools_report_azure.ps1 -Account storageaccount -Detail .\azure-report.xlsx
 #>
 [CmdletBinding()]
 param(

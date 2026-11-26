@@ -37,7 +37,7 @@ Requires: Azure CLI (winget install Microsoft.AzureCLI) and azcopy
 .PARAMETER Account
 Name of the Azure storage account that holds the containers: the first part of
 https://ACCOUNT.blob.core.windows.net, 3-24 lowercase letters/digits, e.g.
-rpsphotography001; not a URL, resource group or container (default:
+storageaccount; not a URL, resource group or container (default:
 $env:PHOTO_AZ_ACCOUNT). List yours with:
 az storage account list --query "[].name" -o tsv
 
@@ -106,23 +106,23 @@ messages; azcopy logs at INFO level. Also saved to debug.log in the run folder
 (except with -DryRun). (This is not the common -Verbose parameter.)
 
 .EXAMPLE
-.\phototools_upload_azure.ps1 -Account rpsphotography001 -Upload 'raw=D:\Photos\Raw','edits=D:\Photos\Edits'
+.\phototools_upload_azure.ps1 -Account storageaccount -Upload 'raw=D:\Photos\Raw','edits=D:\Photos\Edits'
 
 Uploads both folders, each into its own container.
 
 .EXAMPLE
-.\phototools_upload_azure.ps1 -Account rpsphotography001 -MapFile D:\Photos\containers.txt -Prefix 2026 -DryRun
+.\phototools_upload_azure.ps1 -Account storageaccount -MapFile D:\Photos\containers.txt -Prefix 2026 -DryRun
 
 Shows what would be uploaded, without uploading anything.
 
 .EXAMPLE
-.\phototools_upload_azure.ps1 -Account rpsphotography001 -Upload 'raw=D:\Photos\Raw' -RetryMode
+.\phototools_upload_azure.ps1 -Account storageaccount -Upload 'raw=D:\Photos\Raw' -RetryMode
 
 Uploads only the files that failed in an earlier run.
 
 .NOTES
 Environment (options given on the command line win over these):
-  PHOTO_AZ_ACCOUNT        storage account name, e.g. rpsphotography001 (same as -Account)
+  PHOTO_AZ_ACCOUNT        storage account name, e.g. storageaccount (same as -Account)
   PHOTO_AZ_AUTH           user (your az login) or sp (service principal) (same as -Identity)
   PHOTO_AZ_CLIENT_ID      service principal app ID (same as -ClientId; falls back to AZURE_CLIENT_ID)
   PHOTO_AZ_TENANT_ID      tenant ID (same as -TenantId; falls back to AZURE_TENANT_ID)

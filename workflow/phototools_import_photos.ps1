@@ -76,7 +76,7 @@ Environment overrides:
   PHOTO_IMPORT_DEST      destination root (same as -Destination; the
                          parameter overrides it)
   PHOTO_COPYRIGHT_OWNER  default for -CopyrightOwner; set it once, e.g.
-                         setx PHOTO_COPYRIGHT_OWNER "Richard Sedlak"
+                         setx PHOTO_COPYRIGHT_OWNER "Photographer or Studio Name"
   PHOTO_COMPRESS_NEF     set to 0 (or no/false/off/n) to stop compressing NEF\
                          folders after import (same as -NoCompress)
   DNG_CONVERTER          path to the converter program (default:
@@ -90,7 +90,7 @@ Environment overrides:
 Event name (required). "Detroit Riverwalk" -> detroit-riverwalk
 
 .PARAMETER CopyrightOwner
-Copyright owner written into each new DNG, e.g. "Richard Sedlak"
+Copyright owner written into each new DNG, e.g. "Photographer or Studio Name"
 (default: $env:PHOTO_COPYRIGHT_OWNER; no copyright if neither is set).
 
 .PARAMETER Source
@@ -125,7 +125,7 @@ Eject the card when finished (only works when the source is a drive root).
 Show what would happen, change nothing.
 
 .EXAMPLE
-.\phototools_import_photos.ps1 -EventName "Detroit Riverwalk" -Destination D:\Photos -CopyrightOwner "Richard Sedlak"
+.\phototools_import_photos.ps1 -EventName "Detroit Riverwalk" -Destination D:\Photos -CopyrightOwner "Photographer or Studio Name"
 
 .EXAMPLE
 .\phototools_import_photos.ps1 -EventName wedding -Destination D:\Photos -Source E:\ -Eject

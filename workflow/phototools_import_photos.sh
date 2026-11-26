@@ -60,7 +60,7 @@
 #   ./phototools_import_photos.sh -e EVENT [options]
 #
 #   -e EVENT     event name (required). "Detroit Riverwalk" -> detroit-riverwalk
-#   -c OWNER     copyright owner written into each new DNG, e.g. "Richard Sedlak"
+#   -c OWNER     copyright owner written into each new DNG, e.g. "Photographer or Studio Name"
 #                (default: $PHOTO_COPYRIGHT_OWNER; no copyright if neither is set)
 #   -s SOURCE    card mount point (default: the volume in /Volumes that has a
 #                DCIM folder)
@@ -86,7 +86,7 @@
 # Environment overrides:
 #   PHOTO_IMPORT_DEST  destination root (same as -d; -d overrides it)
 #   PHOTO_COPYRIGHT_OWNER  default for -c; set it once in ~/.zshrc, e.g.
-#                  export PHOTO_COPYRIGHT_OWNER="Richard Sedlak"
+#                  export PHOTO_COPYRIGHT_OWNER="Photographer or Studio Name"
 #   PHOTO_COMPRESS_NEF  set to 0 (or no/false/off) to stop compressing NEF/
 #                  folders after import (same as -z); default is to compress
 #   DNG_CONVERTER  path to the converter binary
