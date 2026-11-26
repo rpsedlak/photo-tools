@@ -378,7 +378,7 @@ try {
                 Write-Output "  nothing to $verb"
                 continue
             }
-            $folders = @{}
+            $folders = New-Object System.Collections.Hashtable ([StringComparer]::Ordinal)
             foreach ($p in $cls.Pruned) {
                 $f = Get-Folder $p.Name
                 if (-not $folders.ContainsKey($f)) { $folders[$f] = [long[]]@(0, 0, 0) }
@@ -392,7 +392,7 @@ try {
                 Write-Output ('  {0,-52} {1,8} {2,8} {3,10}' -f $label, $row[0], $row[1], (Format-Gb $row[2]))
             }
             if ($List) {
-                $byName = @{}
+                $byName = New-Object System.Collections.Hashtable ([StringComparer]::Ordinal)
                 foreach ($p in $cls.Pruned) { $byName[$p.Name] = $p }
                 foreach ($n in (Sort-Ordinal @($byName.Keys))) {
                     Write-Output ('    {0} ({1}, {2} GB)' -f $n, $byName[$n].Reason, (Format-Gb $byName[$n].Size))
