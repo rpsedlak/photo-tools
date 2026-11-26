@@ -846,7 +846,9 @@ The environment variables are the same as on macOS. Instead of `~/.zshrc`, set t
 [Environment]::SetEnvironmentVariable('PHOTO_AZ_ACCOUNT', 'rpsphotography001', 'User')
 ```
 
-Or put `$env:NAME = 'value'` lines in your PowerShell profile (`notepad $PROFILE`). Don't put a secret in either place.
+These settings apply to new PowerShell windows. You can also set them in Windows by searching for **Edit environment variables for your account**, selecting **Environment Variables**, and adding them under **User variables**.
+
+To set a variable only for the current PowerShell window, use `$env:NAME = 'value'`. You can make that assignment run in every PowerShell window by putting it in your PowerShell profile (`notepad $PROFILE`). Don't store secrets in persistent environment variables or your profile; set them only in the window where you need them.
 
 ### `phototools_import_photos.ps1` — Import and organize photos from an SD card
 
