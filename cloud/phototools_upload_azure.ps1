@@ -12,8 +12,8 @@ Runs on Windows PowerShell 5.1 and PowerShell 7+.
            SAS for each container (signed with Entra ID, never with account
            keys) and hands it to azcopy. With -Transfer oauth, azcopy signs in
            itself instead and renews its own tokens (best for very long runs).
-  UPLOAD   Every file under each folder is uploaded to its container,
-           keeping the folder structure:
+  UPLOAD   Files under each folder are uploaded to its container, keeping the
+           folder structure (NEF and ZIP are skipped by default):
                DIR\20261017\DNG\a.dng -> <container>/<prefix>/20261017/DNG/a.dng
            Hidden files and folders (names starting with '.') are skipped.
            Blobs that are already in the container are skipped, so a re-run
@@ -60,6 +60,10 @@ each DIR).
 .PARAMETER RetryMode
 Retry mode: upload only what is in the retry folders.
 
+.PARAMETER IgnoreExtensions
+Comma-separated filename extensions to ignore, without dots (default:
+PHOTO_UPLOAD_IGNORE_EXTENSIONS, else nef,zip). An empty value ignores none.
+
 .PARAMETER Identity
 Which Azure identity signs in and uploads (default: $env:PHOTO_AZ_AUTH, else user):
   user  you: reuses your existing 'az login' sign-in. Simplest; use it when you
@@ -86,8 +90,13 @@ $env:AZURE_CLIENT_CERTIFICATE_PATH).
 How azcopy is authorized: sas = a SAS created by this script, oauth = azcopy
 signing in itself (default: $env:PHOTO_AZ_TRANSFER, else sas).
 
+.PARAMETER CreateContainers
+What to do when a container is missing: ask (default), yes, or no. New
+containers are private. Dry runs only report what would be created; retry
+mode never creates containers.
+
 .PARAMETER SasHours
-SAS lifetime in hours, 1-167 (default 24).
+SAS lifetime in hours, 1-167 (default 48).
 
 .PARAMETER Tier
 Blob tier: Hot, Cool, Cold or Archive (default: the account's).
@@ -136,7 +145,9 @@ Environment (options given on the command line win over these):
                           secret (default: photo-tools-azure-<client ID>); read
                           with Get-Secret -Name NAME -AsPlainText
   PHOTO_AZ_TRANSFER       sas or oauth (same as -Transfer)
+  PHOTO_AZ_CREATE_CONTAINERS  ask, yes or no (same as -CreateContainers)
   PHOTO_UPLOAD_RETRY      retry folder root (same as -RetryFolder)
+  PHOTO_UPLOAD_IGNORE_EXTENSIONS  extensions to ignore (default: nef,zip)
   PHOTO_UPLOAD_LOGS       where run reports and azcopy logs go
                           (default: ~\.photo-tools\upload-runs)
   PHOTO_UPLOAD_VERBOSE    1 = verbose (same as -VerboseLog)
@@ -152,6 +163,8 @@ param(
     [string]$Prefix,
     [string]$RetryFolder,
     [switch]$RetryMode,
+    [AllowEmptyString()]
+    [string]$IgnoreExtensions,
     [ValidateSet('user', 'sp')]
     [string]$Identity,
     [string]$ClientId,
@@ -159,7 +172,9 @@ param(
     [string]$CertificatePath,
     [ValidateSet('sas', 'oauth')]
     [string]$Transfer,
-    [int]$SasHours = 24,
+    [ValidateSet('ask', 'yes', 'no')]
+    [string]$CreateContainers,
+    [int]$SasHours = 48,
     [ValidateSet('Hot', 'Cool', 'Cold', 'Archive')]
     [string]$Tier,
     [switch]$Overwrite,
@@ -208,6 +223,11 @@ $sClientId = Get-Setting 'ClientId' $ClientId @('PHOTO_AZ_CLIENT_ID', 'AZURE_CLI
 $sTenantId = Get-Setting 'TenantId' $TenantId @('PHOTO_AZ_TENANT_ID', 'AZURE_TENANT_ID')
 $sCertPath = Get-Setting 'CertificatePath' $CertificatePath @('PHOTO_AZ_CERT_PATH', 'AZURE_CLIENT_CERTIFICATE_PATH')
 $sTransfer = Get-Setting 'Transfer' $Transfer @('PHOTO_AZ_TRANSFER') 'sas'
+$sCreate = Get-Setting 'CreateContainers' $CreateContainers @('PHOTO_AZ_CREATE_CONTAINERS') 'ask'
+$sIgnoreExtensions = if ($script:Bound.ContainsKey('IgnoreExtensions')) { $IgnoreExtensions } else {
+    $envIgnore = [Environment]::GetEnvironmentVariable('PHOTO_UPLOAD_IGNORE_EXTENSIONS')
+    if ($null -eq $envIgnore) { 'nef,zip' } else { $envIgnore }
+}
 $sRetryRoot = Get-Setting 'RetryFolder' $RetryFolder @('PHOTO_UPLOAD_RETRY')
 $sRunsRoot = Get-Env 'PHOTO_UPLOAD_LOGS'
 if ($sRunsRoot -eq '') { $sRunsRoot = [IO.Path]::Combine($HOME, '.photo-tools', 'upload-runs') }
@@ -268,10 +288,12 @@ Usage:
   -Prefix PREFIX     extra folder in front of everything uploaded
   -RetryFolder DIR   retry folder root (default: DIR\.upload-retry)
   -RetryMode         upload only what is in the retry folders
+  -IgnoreExtensions EXTENSIONS  comma-separated extensions to skip (default: nef,zip; empty skips none)
   -Identity user|sp  which Azure identity signs in (default: user)
   -ClientId, -TenantId, -CertificatePath   service principal settings (-Identity sp)
   -Transfer sas|oauth  how azcopy is authorized (default: sas)
-  -SasHours HOURS    SAS lifetime, 1-167 (default 24)
+  -CreateContainers ask|yes|no  what to do for missing containers (default: ask)
+  -SasHours HOURS    SAS lifetime, 1-167 (default 48)
   -Tier TIER         Hot, Cool, Cold or Archive
   -Overwrite         replace a blob when the local file is newer
   -DryRun            sign in and check access, change nothing
@@ -431,6 +453,17 @@ else { Die "-Identity must be 'user' or 'sp', got '$sAuth'." }
 if ($sTransfer -ieq 'sas') { $sTransfer = 'sas' }
 elseif ($sTransfer -ieq 'oauth') { $sTransfer = 'oauth' }
 else { Die "-Transfer must be 'sas' or 'oauth', got '$sTransfer'." }
+$sCreate = $sCreate.ToLowerInvariant()
+if ($sCreate -notin @('ask', 'yes', 'no')) { Die "-CreateContainers must be 'ask', 'yes' or 'no', got '$sCreate'." }
+$sIgnoreExtensions = ($sIgnoreExtensions -replace '\s', '').ToLowerInvariant()
+if ($sIgnoreExtensions -ne '' -and $sIgnoreExtensions -cnotmatch '^[a-z0-9]+(,[a-z0-9]+)*$') {
+    Die '-IgnoreExtensions must be a comma-separated list of filename extensions (letters and digits only).'
+}
+$IgnoredExtensions = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+if ($sIgnoreExtensions -ne '') {
+    foreach ($ext in $sIgnoreExtensions.Split(',')) { $null = $IgnoredExtensions.Add($ext) }
+}
+$IgnoreExtensionsRe = if ($sIgnoreExtensions -ne '') { '|(?i)\.(' + ($sIgnoreExtensions -replace ',', '|') + ')$' } else { '' }
 if ($sHours -lt 1 -or $sHours -gt 167) { Die '-SasHours must be 1-167 hours (a user delegation SAS lasts at most 7 days).' }
 switch ($sTier.ToLowerInvariant()) {
     ''        { }
@@ -632,6 +665,8 @@ function Get-FileList {
                 $stack.Push(@($fi.FullName, $rel))
             }
             else {
+                $ext = [IO.Path]::GetExtension($name).TrimStart('.')
+                if ($IgnoredExtensions.Contains($ext)) { continue }
                 $blob = $BlobPrefix + $(if ($rel.Contains('/')) { $rel } else { "$GeneralDir/$rel" })
                 $byRel[$rel] = [pscustomobject]@{ Rel = $rel; Size = [long]$fi.Length; Blob = $blob }
             }
@@ -769,6 +804,8 @@ try {
                 Write-VLog "setting secret    = $secretDesc"
             }
             Write-VLog "setting transfer  = $sTransfer  [$(Get-SettingSource 'Transfer' @('PHOTO_AZ_TRANSFER'))]"
+            Write-VLog "setting create    = $sCreate  [$(Get-SettingSource 'CreateContainers' @('PHOTO_AZ_CREATE_CONTAINERS'))]"
+            Write-VLog "setting ignored extensions = $(if ($sIgnoreExtensions) { $sIgnoreExtensions } else { '<none>' })  [$(Get-SettingSource 'IgnoreExtensions' @('PHOTO_UPLOAD_IGNORE_EXTENSIONS'))]"
             Write-VLog "setting prefix    = $(if ($sPrefix) { $sPrefix } else { '<none>' }); SAS hours = $sHours; tier = $(if ($sTier) { $sTier } else { '<account default>' }); overwrite = $(if ($sOverwrite) { 'ifSourceNewer' } else { 'false' }); retry mode = $([int]$sRetryMode); dry run = $([int]$sDryRun)"
             Write-VLog "setting retry     = $(if ($sRetryRoot) { $sRetryRoot } else { 'DIR\.upload-retry' })  [$(Get-SettingSource 'RetryFolder' @('PHOTO_UPLOAD_RETRY'))]"
             Write-VLog "setting logs      = $sRunsRoot  [$(Get-SettingSource 'x' @('PHOTO_UPLOAD_LOGS'))]"
@@ -863,6 +900,8 @@ no credential for service principal $sClientId. Provide one of:
 
         $existsErr = [IO.Path]::Combine($Work, 'exists.err')
         $checked = New-Object 'System.Collections.Generic.HashSet[string]'
+        $missingContainers = New-Object 'System.Collections.Generic.HashSet[string]'
+        $createdContainers = New-Object 'System.Collections.Generic.List[string]'
         foreach ($e in $Entries) {
             $cont = $e.Container
             if (-not $checked.Add($cont)) { continue }
@@ -879,7 +918,31 @@ no credential for service principal $sClientId. Provide one of:
             }
             $existsOut = ($script:NativeOut -join '').Trim()
             Write-VLog "container $cont exists: $existsOut"
-            if ($existsOut -ne 'true') { Die "container '$cont' does not exist in storage account '$sAccount'. Create it first (this script never creates containers)." }
+            if ($existsOut -notin @('true', 'false')) { Die "unexpected response checking container '$cont': '$existsOut'." }
+            if ($existsOut -ne 'true') {
+                if ($sRetryMode) { Die "container '$cont' does not exist in storage account '$sAccount', so there is nothing to retry." }
+                if ($sDryRun) {
+                    if ($sCreate -eq 'no') { Die "container '$cont' does not exist in storage account '$sAccount' (-CreateContainers no: not creating containers)." }
+                    $null = $missingContainers.Add($cont)
+                    continue
+                }
+                if ($sCreate -eq 'ask') {
+                    if ([Console]::IsInputRedirected) { Die "container '$cont' does not exist and there is no terminal to ask on. Use -CreateContainers yes to create it." }
+                    try { $answer = Read-Host "Container '$cont' does not exist in storage account '$sAccount'. Create it (private)? [y/N]" }
+                    catch { Die "cannot prompt to create container '$cont'. Use -CreateContainers yes for unattended runs." }
+                    if ($answer -notmatch '^(y|yes)$') { Die "container '$cont' does not exist and was not created." }
+                }
+                elseif ($sCreate -eq 'no') { Die "container '$cont' does not exist and was not created (-CreateContainers no)." }
+                Invoke-Native $AzExe @('storage', 'container', 'create', '--account-name', $sAccount, '-n', $cont, '--auth-mode', 'login', '--query', 'created', '-o', 'tsv') $existsErr
+                if ($script:NativeExit -ne 0) {
+                    Write-Err "Error: cannot create container '$cont' in '$sAccount' as ${Identity_}:"
+                    Write-ErrFile $existsErr $ErrLines
+                    Write-Err "  $Identity_ needs the 'Storage Blob Data Contributor' role on storage account $sAccount."
+                    Exit-Script 1
+                }
+                Write-LogLine "Created container '$cont' in '$sAccount'."
+                $createdContainers.Add($cont)
+            }
             # "exists" only needs a management role such as Owner; reading blobs needs
             # a data role, which uploads need too, so check that before uploading.
             Invoke-Native $AzExe @('storage', 'blob', 'list', '--account-name', $sAccount, '-c', $cont, '--auth-mode', 'login', '--num-results', '1', '--query', '[].name', '-o', 'tsv') $existsErr
@@ -924,6 +987,7 @@ no credential for service principal $sClientId. Provide one of:
                 $loose = @($list | Where-Object { -not $_.Rel.Contains('/') }).Count
                 $bytes = [long]0
                 foreach ($f in $list) { $bytes += $f.Size }
+                if ($missingContainers.Contains($cont)) { Write-LogLine "${cont}: container does not exist; WOULD be created (private)" }
                 Write-LogLine ('{0}: WOULD upload {1} file(s), {2}' -f $cont, $n, (Format-Size $bytes))
                 Write-LogLine "    from  $src"
                 Write-LogLine "    to    https://$sAccount.$BlobSuffix/$cont/$bp"
@@ -953,6 +1017,7 @@ no credential for service principal $sClientId. Provide one of:
         }
         $head = "$ProgName  $(Format-Now 'yyyy-MM-dd HH:mm:ss')`naccount   $sAccount`nidentity  $Identity_ ($CredDesc)`naccess    $sTransfer`n"
         if ($sRetryMode) { $head += "mode      retry`n" }
+        if ($createdContainers.Count -gt 0) { $head += "created   containers: $($createdContainers -join ', ')`n" }
         [IO.File]::WriteAllText($Report, $head + "`n", $Utf8)
 
         # ---------- 4. upload -----------------------------------------------------
@@ -1000,13 +1065,13 @@ no credential for service principal $sClientId. Provide one of:
             foreach ($pass in @('sub', 'loose')) {
                 if ($pass -eq 'sub') {
                     $passN = $n - $loose
-                    $copyArgs = @('copy', ([IO.Path]::Combine($src, '*')), $url, '--recursive', '--exclude-regex', "$HiddenRe|^[^/]+`$")
+                    $copyArgs = @('copy', ([IO.Path]::Combine($src, '*')), $url, '--recursive', '--exclude-regex', "$HiddenRe|^[^/]+`$$IgnoreExtensionsRe")
                 }
                 else {
                     $passN = $loose
                     $passUrl = "$dest/$GeneralDir"
                     if ($sas -ne '') { $passUrl += "?$sas" }
-                    $copyArgs = @('copy', ([IO.Path]::Combine($src, '*')), $passUrl, '--exclude-regex', $HiddenRe)
+                    $copyArgs = @('copy', ([IO.Path]::Combine($src, '*')), $passUrl, '--exclude-regex', "$HiddenRe$IgnoreExtensionsRe")
                 }
                 if ($passN -le 0) { continue }
                 $copyArgs += @('--put-md5', '--block-size-mb=40', '--cap-mbps=0', ('--log-level=' + $(if ($sVerbose) { 'INFO' } else { 'WARNING' })), '--output-type=json')

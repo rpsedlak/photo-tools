@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PWSH = shutil.which("pwsh")
+WINDOWS_POWERSHELL = PWSH or shutil.which("powershell")
 
 
 @unittest.skipUnless(PWSH, "PowerShell is not installed")
@@ -40,6 +41,17 @@ $function = $ast.Find({ param($node) $node -is [System.Management.Automation.Lan
             "C:/photos/a.dng",
             "//nas/photos/a.dng",
         ])
+
+
+@unittest.skipUnless(os.name == "nt" and WINDOWS_POWERSHELL, "Windows PowerShell is required")
+class PowerShellAzureUploadIntegrationTest(unittest.TestCase):
+    def test_upload_integration(self):
+        result = subprocess.run(
+            [WINDOWS_POWERSHELL, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", str(ROOT / "tests" / "test_upload_azure_integration.ps1")],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

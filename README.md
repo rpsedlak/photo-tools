@@ -1067,11 +1067,13 @@ Works exactly like [`phototools_upload_azure.sh`](#cloudupload_azuresh--upload-p
 | `-p PREFIX`    | `-Prefix`                               |                                                   |
 | `-r RETRY`     | `-RetryFolder`                          | `PHOTO_UPLOAD_RETRY`                              |
 | `-R`           | `-RetryMode`                            |                                                   |
+| `-e EXTENSIONS`| `-IgnoreExtensions`                     | `PHOTO_UPLOAD_IGNORE_EXTENSIONS`                  |
 | `-I user\|sp`  | `-Identity user\|sp`                    | `PHOTO_AZ_AUTH`                                   |
 | `-i APP_ID`    | `-ClientId`                             | `PHOTO_AZ_CLIENT_ID`, `AZURE_CLIENT_ID`           |
 | `-z TENANT`    | `-TenantId`                             | `PHOTO_AZ_TENANT_ID`, `AZURE_TENANT_ID`           |
 | `-K PEM`       | `-CertificatePath`                      | `PHOTO_AZ_CERT_PATH`, `AZURE_CLIENT_CERTIFICATE_PATH` |
 | `-A sas\|oauth`| `-Transfer`                             | `PHOTO_AZ_TRANSFER`                               |
+| `-c ask\|yes\|no` | `-CreateContainers`                 | `PHOTO_AZ_CREATE_CONTAINERS`                      |
 | `-t HOURS`     | `-SasHours`                             |                                                   |
 | `-T TIER`      | `-Tier`                                 |                                                   |
 | `-O`           | `-Overwrite`                            |                                                   |
@@ -1092,7 +1094,14 @@ phototools_upload_azure.ps1 -Account storageaccount -Upload "charlevoix=D:\Expor
 
 # Categories kept in a file (one CONTAINER=DIR per line, # comments allowed)
 phototools_upload_azure.ps1 -Account storageaccount -MapFile $HOME\photo-categories.txt
+
+# Create missing containers without prompting
+phototools_upload_azure.ps1 -Account storageaccount -Upload "charlevoix=D:\Export\charlevoix" -CreateContainers yes
 ```
+
+Missing containers prompt by default; `-CreateContainers yes` creates them privately and `no` stops instead. A dry run reports missing containers without creating them or verifying creation permission, and retry mode never creates them. Creation requires the Storage Blob Data Contributor role at storage-account scope.
+
+`.NEF` and `.ZIP` files are ignored by default, including in retry mode. Use `-IgnoreExtensions 'nef'` to change the list or `-IgnoreExtensions ''` to include all extensions. The default SAS lifetime is 48 hours; override it with `-SasHours`.
 
 Azure itself works the same way as on macOS: see [Access requirements (RBAC)](#access-requirements-rbac) for the role you need, and [Service principal setup](#service-principal-setup) for creating one (the `az` commands are identical; use `$ACCOUNT_ID = az storage account show ... --query id -o tsv` in PowerShell).
 
