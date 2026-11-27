@@ -511,7 +511,8 @@ Uploads local folders into Azure Blob Storage containers, one container per cate
 2. **Check** — before anything is uploaded, every container is checked: it must exist and the signed-in identity must have access. If a container does not exist, the script asks whether to create it (see `-c`). Problems stop the run with a message naming the missing role.
 3. **Authorize azcopy** — by default the script creates a short-lived **user delegation SAS** for each container. The SAS is signed with your Entra ID sign-in, never with storage account keys, so account keys can stay disabled. It allows only read/create/write/list, never delete, and is HTTPS-only and never printed or logged. With `-A oauth`, azcopy signs in itself instead and renews its own tokens. That suits very long uploads, which could outlast a SAS.
 4. **Upload** — files under each folder go to its container, except `.NEF` and `.ZIP` files, which are skipped by default (see [Ignoring file extensions](#ignoring-file-extensions) and [Where files go in the container](#where-files-go-in-the-container)):
-   - Each first-level subfolder becomes a folder in the container, keeping everything below it.
+   - The source folder's own name becomes the top folder in the container (`-N` turns this off).
+   - Each first-level subfolder becomes a folder below that, keeping everything below it.
    - Files sitting directly in the folder go into a `general/` folder.
    - Hidden files and folders (`.DS_Store`, `.incoming/`, …) are skipped.
    - Blobs that are already in the container are skipped, so re-running only sends what is new.
@@ -530,6 +531,7 @@ phototools_upload_azure.sh -a ACCOUNT -u CONTAINER=DIR [-u CONTAINER=DIR ...] [o
   -u C=DIR      upload folder DIR into container C (repeat for each category)
   -m MAPFILE    read CONTAINER=DIR (or CONTAINER<TAB>DIR) lines from a file
   -p PREFIX     optional extra folder in front of everything uploaded, e.g. 2026
+  -N            do not use the name of DIR as a folder in the container
   -r RETRY      retry folder root (default: $PHOTO_UPLOAD_RETRY, else DIR/.upload-retry)
   -R            retry mode: upload only what is in the retry folders
   -e EXTENSIONS comma-separated filename extensions to ignore (default: $PHOTO_UPLOAD_IGNORE_EXTENSIONS, else nef,zip)
@@ -573,15 +575,15 @@ export PHOTO_AZ_ACCOUNT=storageaccount
 
 Being *Owner* of the subscription is not enough for either one: Owner manages the account but can't read or write blobs. The pre-upload check (and `-n`) reports this before anything is uploaded.
 
-**Where files go in the container:** inside each container, every first-level subfolder of the source folder keeps its name. Files directly in the source folder (not in a subfolder) go into a folder called `general`, which is created the first time and added to after that. For `-u grand-haven=~/Export/GrandHaven`:
+**Where files go in the container:** by default the name of the source folder itself becomes a folder in the container, and everything is placed inside it. Inside that folder, every first-level subfolder of the source folder keeps its name. Files directly in the source folder (not in a subfolder) go into a folder called `general`, which is created the first time and added to after that. For `-u grand-haven=~/Export/GrandHaven`:
 
-| Local file                                  | Blob in `grand-haven`        | With `-p 2026`                    |
-|---------------------------------------------|------------------------------|-----------------------------------|
-| `~/Export/GrandHaven/20261017/DNG/a.dng`    | `20261017/DNG/a.dng`         | `2026/20261017/DNG/a.dng`         |
-| `~/Export/GrandHaven/sunsets/b.jpg`         | `sunsets/b.jpg`              | `2026/sunsets/b.jpg`              |
-| `~/Export/GrandHaven/c.jpg`                 | `general/c.jpg`              | `2026/general/c.jpg`              |
+| Local file                                  | Blob in `grand-haven`                  | With `-p 2026`                            | With `-N`                    |
+|---------------------------------------------|----------------------------------------|-------------------------------------------|------------------------------|
+| `~/Export/GrandHaven/20261017/DNG/a.dng`    | `GrandHaven/20261017/DNG/a.dng`        | `2026/GrandHaven/20261017/DNG/a.dng`      | `20261017/DNG/a.dng`         |
+| `~/Export/GrandHaven/sunsets/b.jpg`         | `GrandHaven/sunsets/b.jpg`             | `2026/GrandHaven/sunsets/b.jpg`           | `sunsets/b.jpg`              |
+| `~/Export/GrandHaven/c.jpg`                 | `GrandHaven/general/c.jpg`             | `2026/GrandHaven/general/c.jpg`           | `general/c.jpg`              |
 
-`-p` is optional: it adds the same extra folder (it can have several levels, e.g. `2026/fall`) in front of every blob. Without it, the subfolders and `general/` sit at the top of the container.
+`-p` is optional: it adds the same extra folder (it can have several levels, e.g. `2026/fall`) in front of every blob. `-N` uploads the contents of the source folder without using its name, so the subfolders and `general/` sit at the top of the container (or directly under the `-p` folder). The source folder's name may only use letters, digits, `.`, `_` and `-` and must not start with a `.`; otherwise rename the folder or use `-N`.
 
 - The dry run (`-n`) lists each file with the blob it will become.
 - If the source folder has a subfolder that is itself called `general`, its files go to `general/` too. A loose file with the same name as one in that subfolder would land on the same blob, so the script stops before uploading and lists those files.
@@ -1075,6 +1077,7 @@ Works exactly like [`phototools_upload_azure.sh`](#cloudupload_azuresh--upload-p
 | `-u C=DIR`     | `-Upload "C=DIR","C2=DIR2"`             |                                                   |
 | `-m MAPFILE`   | `-MapFile`                              |                                                   |
 | `-p PREFIX`    | `-Prefix`                               |                                                   |
+| `-N`           | `-NoSourceFolder`                       |                                                   |
 | `-r RETRY`     | `-RetryFolder`                          | `PHOTO_UPLOAD_RETRY`                              |
 | `-R`           | `-RetryMode`                            |                                                   |
 | `-e EXTENSIONS`| `-IgnoreExtensions`                     | `PHOTO_UPLOAD_IGNORE_EXTENSIONS`                  |

@@ -121,6 +121,9 @@ class AzCopy {
     Assert-True ($result.Code -eq 0 -and $result.Out -match 'WOULD upload 3 file\(s\)' -and $result.Out -notmatch 'photo.jpg') 'Environment extension filter must be case insensitive and configurable.'
     $result = Run-Upload "-DryRun -IgnoreExtensions ''"
     Assert-True ($result.Code -eq 0 -and $result.Out -match 'WOULD upload 4 file\(s\)') 'Empty option must override the environment and include all files.'
+    Assert-True ($result.Out -match '-> +photos/general/photo\.jpg' -and $result.Out -match 'photos/sub/image\.dng') 'The name of the source folder must be a folder in the container.'
+    $result = Run-Upload "-DryRun -IgnoreExtensions '' -NoSourceFolder"
+    Assert-True ($result.Code -eq 0 -and $result.Out -match '-> +general/photo\.jpg' -and $result.Out -notmatch 'photos/general') '-NoSourceFolder must upload the contents without the source folder name.'
     $result = Run-Upload "-DryRun -IgnoreExtensions 'nef,,zip'"
     Assert-True ($result.Code -eq 1 -and $result.Err -match 'comma-separated') 'Malformed extension lists must fail.'
     $retryRoot = Join-Path $root 'retry'
