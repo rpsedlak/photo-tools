@@ -11,7 +11,9 @@
 #            itself instead and renews its own tokens (best for very long runs).
 #   UPLOAD   Files under each folder are uploaded to its container, keeping the
 #            folder structure. NEF and ZIP files are skipped by default:
-#                DIR/20261017/DNG/a.dng -> <container>/<prefix>/20261017/DNG/a.dng
+#                DIR/20261017/DNG/a.dng -> <container>/<prefix>/<DIR name>/20261017/DNG/a.dng
+#            The name of DIR itself is kept as a folder in the container
+#            (-N turns that off).
 #            Hidden files and folders are skipped. Blobs that are already in
 #            the container are skipped, so a re-run only sends what is new.
 #            Each blob gets an MD5 hash.
@@ -34,7 +36,10 @@
 #   -m MAPFILE    read CONTAINER=DIR (or CONTAINER<TAB>DIR) lines from a file;
 #                 blank lines and # comments are ignored
 #   -p PREFIX     optional extra folder in front of everything uploaded,
-#                 e.g. 2026 puts DIR/20261017/a.dng at 2026/20261017/a.dng
+#                 e.g. 2026 puts DIR/20261017/a.dng at 2026/<DIR name>/20261017/a.dng
+#   -N            do not use the name of DIR as a folder in the container
+#                 (default: it is, so -u c=~/Export/trip puts a.dng at
+#                 trip/a.dng); with -N it goes straight into the container
 #   -r RETRY      retry folder root (default: $PHOTO_UPLOAD_RETRY, else
 #                 DIR/.upload-retry for each DIR)
 #   -R            retry mode: upload only what is in the retry folders
@@ -137,7 +142,7 @@ HIDDEN_RE='(^|/)\.'             # skip hidden files and anything in hidden folde
 GENERAL_DIR="general"           # container folder for files directly inside DIR
 SHOW_FAILS=20                   # FAIL lines printed per container; all go in the report
 
-PREFIX=""; SAS_HOURS=48; TIER=""; OVERWRITE=0; RETRY_MODE=0; DRY_RUN=0
+PREFIX=""; USE_DIR_NAME=1; SAS_HOURS=48; TIER=""; OVERWRITE=0; RETRY_MODE=0; DRY_RUN=0
 SPEC_LINES=""                   # CONTAINER=DIR lines from -u and -m
 OPTS_GIVEN=""                   # option letters used, for the -v settings list
 ERR_LINES=3                     # lines of az error output shown (all of them with -v)
@@ -174,7 +179,7 @@ trace() {         # run a command; with -v log it (secrets hidden), its exit cod
 NL='
 '
 
-while getopts ":a:u:m:p:r:e:RI:i:z:K:A:c:t:T:Onvh" opt; do
+while getopts ":a:u:m:p:Nr:e:RI:i:z:K:A:c:t:T:Onvh" opt; do
     OPTS_GIVEN="$OPTS_GIVEN$opt"
     case "$opt" in
         a) ACCOUNT="$OPTARG" ;;
@@ -182,6 +187,7 @@ while getopts ":a:u:m:p:r:e:RI:i:z:K:A:c:t:T:Onvh" opt; do
         m) [ -r "$OPTARG" ] || die "map file '$OPTARG' not found or not readable."
            SPEC_LINES="$SPEC_LINES$(cat "$OPTARG")$NL" ;;
         p) PREFIX="$OPTARG" ;;
+        N) USE_DIR_NAME=0 ;;
         r) RETRY_ROOT="$OPTARG" ;;
         e) IGNORE_EXTENSIONS="$OPTARG" ;;
         R) RETRY_MODE=1 ;;
@@ -278,7 +284,7 @@ if [ "$AUTH" = "sp" ]; then
 fi
 
 # ---------- container -> folder list ------------------------------------------
-E_C=(); E_D=(); E_R=()          # container, absolute folder, retry root
+E_C=(); E_D=(); E_R=(); E_B=()  # container, absolute folder, retry root, folder name in the container
 [ -z "$RETRY_ROOT" ] || RETRY_ROOT=$(abs_path "${RETRY_ROOT%/}")
 while IFS= read -r line; do
     line=$(printf '%s' "$line" | tr -d '\r')
@@ -300,7 +306,16 @@ while IFS= read -r line; do
     case "$r/" in "$d/"*)
         case "${r#"$d"}/" in */.*) ;; *) die "retry folder '$r' is inside '$d' but not hidden; its files would be uploaded again. Use a name starting with '.' or a folder elsewhere." ;; esac ;;
     esac
-    E_C+=("$c"); E_D+=("$d"); E_R+=("$r")
+    # The folder's own name becomes a folder in the container (not needed to retry).
+    b=""
+    if [ "$USE_DIR_NAME" -eq 1 ] && [ "$RETRY_MODE" -eq 0 ]; then
+        b="${d##*/}"
+        case "$b" in
+            .*) die "folder '$d' starts with '.', so its name cannot be a folder in container '$c' (hidden folders are skipped). Rename it, or use -N." ;;
+            *[!A-Za-z0-9._-]*) die "folder name '$b' may only use letters, digits, '.', '_' and '-' to become a folder in container '$c'. Rename it, or use -N to upload its contents without it." ;;
+        esac
+    fi
+    E_C+=("$c"); E_D+=("$d"); E_R+=("$r"); E_B+=("$b")
 done <<EOF
 $SPEC_LINES
 EOF
@@ -342,7 +357,7 @@ if [ "$VERBOSE" -eq 1 ]; then
     fi
     vlog "setting transfer  = $TRANSFER  [$(src_of A PHOTO_AZ_TRANSFER)]"
     vlog "setting create    = $CREATE  [$(src_of c PHOTO_AZ_CREATE_CONTAINERS)]"
-    vlog "setting prefix    = ${PREFIX:-<none>}; SAS hours = $SAS_HOURS; tier = ${TIER:-<account default>}; overwrite = $([ "$OVERWRITE" -eq 1 ] && echo ifSourceNewer || echo false); retry mode = $RETRY_MODE; dry run = $DRY_RUN"
+    vlog "setting prefix    = ${PREFIX:-<none>}; folder name in container = $([ "$USE_DIR_NAME" -eq 1 ] && echo yes || echo no); SAS hours = $SAS_HOURS; tier = ${TIER:-<account default>}; overwrite = $([ "$OVERWRITE" -eq 1 ] && echo ifSourceNewer || echo false); retry mode = $RETRY_MODE; dry run = $DRY_RUN"
     vlog "setting retry     = ${RETRY_ROOT:-DIR/.upload-retry}  [$(src_of r PHOTO_UPLOAD_RETRY)]"
     vlog "setting ignored extensions = ${IGNORE_EXTENSIONS:-<none>}  [$(src_of e PHOTO_UPLOAD_IGNORE_EXTENSIONS)]"
     vlog "setting logs      = $RUNS_ROOT  [$(src_of x PHOTO_UPLOAD_LOGS)]"
@@ -506,7 +521,7 @@ done
 J_C=(); J_SRC=(); J_PREFIX=(); J_R=()
 i=0
 while [ $i -lt ${#E_C[@]} ]; do
-    c="${E_C[$i]}"; d="${E_D[$i]}"; r="${E_R[$i]}"; i=$((i + 1))
+    c="${E_C[$i]}"; d="${E_D[$i]}"; r="${E_R[$i]}"; b="${E_B[$i]}"; i=$((i + 1))
     if [ "$RETRY_MODE" -eq 1 ]; then
         src="$r/$c"
         dup=0; k=0
@@ -515,7 +530,7 @@ while [ $i -lt ${#E_C[@]} ]; do
         if [ ! -d "$src" ]; then log "$c: nothing to retry ($src not found)"; continue; fi
         J_C+=("$c"); J_SRC+=("$src"); J_PREFIX+=(""); J_R+=("$r")
     else
-        J_C+=("$c"); J_SRC+=("$d"); J_PREFIX+=("$PREFIX"); J_R+=("$r")
+        J_C+=("$c"); J_SRC+=("$d"); J_PREFIX+=("$PREFIX${PREFIX:+${b:+/}}$b"); J_R+=("$r")
     fi
 done
 if [ ${#J_C[@]} -eq 0 ]; then log "Nothing to do."; exit 0; fi

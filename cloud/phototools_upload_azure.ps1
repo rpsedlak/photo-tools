@@ -51,7 +51,12 @@ Read CONTAINER=DIR (or CONTAINER<TAB>DIR) lines from a file; blank lines and
 
 .PARAMETER Prefix
 Optional extra folder in front of everything uploaded, e.g. 2026 puts
-DIR\20261017\a.dng at 2026/20261017/a.dng
+DIR\20261017\a.dng at 2026/<DIR name>/20261017/a.dng
+
+.PARAMETER NoSourceFolder
+Do not use the name of DIR as a folder in the container. By default it is, so
+-Upload c=D:\Export\trip puts a.dng at trip/a.dng; with -NoSourceFolder it goes
+straight into the container.
 
 .PARAMETER RetryFolder
 Retry folder root (default: $env:PHOTO_UPLOAD_RETRY, else DIR\.upload-retry for
@@ -161,6 +166,7 @@ param(
     [string[]]$Upload,
     [string[]]$MapFile,
     [string]$Prefix,
+    [switch]$NoSourceFolder,
     [string]$RetryFolder,
     [switch]$RetryMode,
     [AllowEmptyString()]
@@ -286,6 +292,7 @@ Usage:
   -Upload C=DIR      upload folder DIR into container C (several items allowed)
   -MapFile FILE      read CONTAINER=DIR (or CONTAINER<TAB>DIR) lines from a file
   -Prefix PREFIX     extra folder in front of everything uploaded
+  -NoSourceFolder    do not use the name of DIR as a folder in the container
   -RetryFolder DIR   retry folder root (default: DIR\.upload-retry)
   -RetryMode         upload only what is in the retry folders
   -IgnoreExtensions EXTENSIONS  comma-separated extensions to skip (default: nef,zip; empty skips none)
@@ -540,7 +547,18 @@ foreach ($rawLine in $specLines) {
             Die "retry folder '$rn' is inside '$dn' but not hidden; its files would be uploaded again. Use a name starting with '.' or a folder elsewhere."
         }
     }
-    $Entries.Add([pscustomobject]@{ Container = $cn; Dir = $dn; Retry = $rn })
+    # The folder's own name becomes a folder in the container (not needed to retry).
+    $fn = ''
+    if (-not $NoSourceFolder.IsPresent -and -not $sRetryMode) {
+        $fn = [IO.Path]::GetFileName($dn.TrimEnd('\', '/'))
+        if ($fn.StartsWith('.')) {
+            Die "folder '$dn' starts with '.', so its name cannot be a folder in container '$cn' (hidden folders are skipped). Rename it, or use -NoSourceFolder."
+        }
+        if ($fn -cmatch '[^A-Za-z0-9._-]') {
+            Die "folder name '$fn' may only use letters, digits, '.', '_' and '-' to become a folder in container '$cn'. Rename it, or use -NoSourceFolder to upload its contents without it."
+        }
+    }
+    $Entries.Add([pscustomobject]@{ Container = $cn; Dir = $dn; Retry = $rn; Folder = $fn })
 }
 if ($Entries.Count -eq 0) {
     Write-Err 'Error: name at least one CONTAINER=DIR with -Upload or -MapFile.'
@@ -806,7 +824,7 @@ try {
             Write-VLog "setting transfer  = $sTransfer  [$(Get-SettingSource 'Transfer' @('PHOTO_AZ_TRANSFER'))]"
             Write-VLog "setting create    = $sCreate  [$(Get-SettingSource 'CreateContainers' @('PHOTO_AZ_CREATE_CONTAINERS'))]"
             Write-VLog "setting ignored extensions = $(if ($sIgnoreExtensions) { $sIgnoreExtensions } else { '<none>' })  [$(Get-SettingSource 'IgnoreExtensions' @('PHOTO_UPLOAD_IGNORE_EXTENSIONS'))]"
-            Write-VLog "setting prefix    = $(if ($sPrefix) { $sPrefix } else { '<none>' }); SAS hours = $sHours; tier = $(if ($sTier) { $sTier } else { '<account default>' }); overwrite = $(if ($sOverwrite) { 'ifSourceNewer' } else { 'false' }); retry mode = $([int]$sRetryMode); dry run = $([int]$sDryRun)"
+            Write-VLog "setting prefix    = $(if ($sPrefix) { $sPrefix } else { '<none>' }); folder name in container = $(if ($NoSourceFolder.IsPresent) { 'no' } else { 'yes' }); SAS hours = $sHours; tier = $(if ($sTier) { $sTier } else { '<account default>' }); overwrite = $(if ($sOverwrite) { 'ifSourceNewer' } else { 'false' }); retry mode = $([int]$sRetryMode); dry run = $([int]$sDryRun)"
             Write-VLog "setting retry     = $(if ($sRetryRoot) { $sRetryRoot } else { 'DIR\.upload-retry' })  [$(Get-SettingSource 'RetryFolder' @('PHOTO_UPLOAD_RETRY'))]"
             Write-VLog "setting logs      = $sRunsRoot  [$(Get-SettingSource 'x' @('PHOTO_UPLOAD_LOGS'))]"
             foreach ($e in $Entries) { Write-VLog "folder  $($e.Container) <- $($e.Dir)  (retry root $($e.Retry))" }
@@ -972,7 +990,7 @@ no credential for service principal $sClientId. Provide one of:
                 $Jobs.Add([pscustomobject]@{ Container = $cont; Src = $src; Prefix = ''; Retry = $e.Retry })
             }
             else {
-                $Jobs.Add([pscustomobject]@{ Container = $cont; Src = $e.Dir; Prefix = $sPrefix; Retry = $e.Retry })
+                $Jobs.Add([pscustomobject]@{ Container = $cont; Src = $e.Dir; Prefix = (@($sPrefix, $e.Folder) | Where-Object { $_ -ne '' }) -join '/'; Retry = $e.Retry })
             }
         }
         if ($Jobs.Count -eq 0) { Write-LogLine 'Nothing to do.'; Exit-Script 0 }
