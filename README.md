@@ -2,9 +2,19 @@
 
 A collection of photo management tools, grouped into directories by purpose.
 
+Licensed under the [MIT License](LICENSE).
+
 Every tool also has a PowerShell version for Windows 11; see [Windows 11 (PowerShell)](#windows-11-powershell) for the available scripts and their options.
 
 > **Production location:** In normal use the tools are installed with `install/install.sh` and run from **`/usr/local/bin`**, by name (e.g. `phototools_import_photos.sh -e "My Event"`). The exception is when they were installed somewhere else with `install/install.sh -d DIR`; then they run from that folder. This repository is the source; the `workflow/...` paths below show where each script lives in the repo, not where it runs from.
+
+---
+
+## Note from the author
+
+I created this repository of tools to assist in my personal photography workflow. I primarily use Mac computers, Nikon cameras, Lightroom, and Azure so those are well tested. I have tested the Windows 11 versions of these tools as well but no other cameras or photo processing software. Please use the software as you wish while maintaining my copyright. There are no warranties implied with this release. I will review pull requests from those that wish to contribute features. Please submit issues if you run into trouble or have a question. Most of this code was generated with the assistance of AI but thoroughly tested by me, a human, personally.
+
+---
 
 ## Supported Platforms
 
